@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "phreeqpy-tools"
+version = "0.1.0"
+description = "Structured PHREEQC workflows over phreeqpy: template-based composition building, typed task execution, and batch processing."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+keywords = ["phreeqc", "phreeqpy", "geochemistry", "brine", "hydrogeology"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "phreeqpy>=0.2.0",
+    "pandas>=1.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+]
+examples = [
+    "jupyter",
+    "matplotlib",
+]
+
+[project.urls]
+Repository = "https://github.com/yourusername/phreeqpy-tools"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/phreeqpy_tools"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"phreeqc_database" = "phreeqpy_tools/phreeqc_database"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
