@@ -20,7 +20,7 @@ import os
 from abc import ABC, abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable, Optional, Union
+from typing import Any, Callable, Iterable, Iterator, Optional, Union
 
 import pandas as pd
 
@@ -81,8 +81,11 @@ class BaseBatchRunner(ABC):
     task : BaseTask
         Task to execute on each job.
     extra_keys : dict, optional
-        Keyword arguments forwarded to every ``task.run`` call (e.g.
-        constant reaction parameters).
+        Keyword arguments forwarded to every ``task.run`` call. Use this
+        for values that are constant across the entire batch (e.g. fixed
+        reaction amounts, shared mixing fractions). Per-job values belong
+        in the input data: in ``MultiSolutionBatchRunner``, as extra keys
+        within each job dict.
     """
 
     task: BaseTask
@@ -287,7 +290,11 @@ class SolutionBatchRunner(BaseBatchRunner):
         Column to use as sample identifier. If ``None``, uses the
         DataFrame index.
     extra_keys : dict, optional
-        Keyword arguments forwarded to every ``task.run`` call.
+        Keyword arguments forwarded to every ``task.run`` call. Use this
+        for values that are constant across the entire batch (e.g. fixed
+        reaction amounts, shared mixing fractions). Per-job values belong
+        in the input data: in ``SolutionBatchRunner``, as extra keys
+        within each job dict.
 
     Examples
     --------
@@ -310,7 +317,7 @@ class SolutionBatchRunner(BaseBatchRunner):
     def iter_jobs(
         self,
         data: Union[pd.DataFrame, dict[Any, dict[str, Any]]],
-    ) -> Iterable[tuple[Any, dict[str, Any]]]:
+    ) -> Iterator[tuple[Any, dict[str, Any]]]:
         """Yield ``(id_, {"composition": dict})`` pairs.
 
         Parameters
@@ -355,8 +362,11 @@ class MultiSolutionBatchRunner(BaseBatchRunner):
     task : MultiSolutionTask
         Task to execute on each job.
     extra_keys : dict, optional
-        Keyword arguments forwarded to every ``task.run`` call (constants
-        shared across all jobs).
+        Keyword arguments forwarded to every ``task.run`` call. Use this
+        for values that are constant across the entire batch (e.g. fixed
+        reaction amounts, shared mixing fractions). Per-job values belong
+        in the input data: in ``MultiSolutionBatchRunner``, as extra keys
+        within each job dict.
 
     Examples
     --------

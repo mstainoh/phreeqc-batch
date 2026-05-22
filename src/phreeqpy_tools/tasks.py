@@ -1,7 +1,6 @@
 """PHREEQC task definitions and result types.
 
-Provides a base task class, two concrete implementations, and a result
-container:
+Provides a base task class, two concrete task implementations and a result container:
 
 - ``BaseTask``: abstract base — holds ``run_template``, implements ``run()``.
 - ``SolutionTask``: single-composition workflow.

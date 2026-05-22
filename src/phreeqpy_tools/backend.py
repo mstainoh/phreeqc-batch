@@ -12,8 +12,8 @@ To implement a custom backend, subclass or duck-type ``PhreeqcBackend``::
         def get_selected_output_array(self) -> list:
             ...
 
-Any object satisfying the Protocol can be passed to ``PhreeqcTask.run``
-and ``PhreeqcBatchRunner.run`` in place of the default backend.
+Any object satisfying the Protocol can be passed to ``BaseTask.run`` subclasses
+and ``BaseBatchRunner.run`` subclasses in place of the default backend.
 """
 from __future__ import annotations
 
@@ -160,7 +160,7 @@ class PhreeqpyBackend:
 
         Examples
         --------
-        >>> backend = create_phreeqc_instance(Path("phreeqc_database/pitzer.dat"))
+        >>> backend = PhreeqpyBackend.create_from_database(Path("databases/pitzer.dat"))
         >>> backend.run("SOLUTION 1\\npH 7\\nEND")
         """
         phreeqc = phreeqc_mod.IPhreeqc()

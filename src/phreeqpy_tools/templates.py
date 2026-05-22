@@ -45,7 +45,7 @@ class PhreeqcTemplate:
     Examples
     --------
     >>> t = PhreeqcTemplate("density {density}\\npH {pH}")
-    >>> t.keys
+    >>> t.keys()
     {'density', 'pH'}
     >>> t.fill(density=1.18, pH=6.2)
     'density 1.18\\npH 6.2'
@@ -87,7 +87,10 @@ class PhreeqcTemplate:
         ------
         KeyError
             If any placeholder required by the template is absent
-            from ``kwargs``, or extra keys are passed and ignore_extra is False.
+            from ``kwargs``.
+        ValueError
+            If extra keys not present in the template are passed and
+            ``ignore_extra`` is False.
 
         Examples
         --------
@@ -110,11 +113,11 @@ class PhreeqcTemplate:
 
 
 # ---------------------------------------------------------------------------
-# Composition template: llena los campos de iones/densidad/pH
-# Solo contiene variables de composición — sin params de task
+# Composition template: ions / density / ph
+# no task parameters
 # ---------------------------------------------------------------------------
 
-DEFAULT_COMPOSITION_TEMPLATE = PhreeqcTemplate(r"""    
+DEFAULT_COMPOSITION_TEMPLATE = PhreeqcTemplate(r"""
     density {density}
     temp {temp}
     pH   {pH}
@@ -129,7 +132,6 @@ DEFAULT_COMPOSITION_TEMPLATE = PhreeqcTemplate(r"""
     Li   {Li}
     C(4) {HCO3} as HCO3
 """)
-
 
 
 # no pH, no density, no temperature
@@ -147,7 +149,7 @@ DEFAULT_COMPOSITION_NO_CONDITIONS_TEMPLATE  = PhreeqcTemplate(r"""
 """)
 
 # ---------------------------------------------------------------------------
-# Run templates: reciben {composition_str} ya armado + params del task
+# Run templates: get {composition_str} + task parameters
 # ---------------------------------------------------------------------------
 
 DEFAULT_SOLUTION_RUN_TEMPLATE = PhreeqcTemplate(r"""
