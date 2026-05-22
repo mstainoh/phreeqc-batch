@@ -1,3 +1,6 @@
+![Python](https://img.shields.io/badge/python-3.10+-blue.svg)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+
 # phreeqpy-tools
 
 Structured PHREEQC workflows over [phreeqpy](https://github.com/hydrocomputing/phreeqpy).
@@ -9,6 +12,12 @@ without hiding the PHREEQC input format from you.
 ## Why
 
 Python is generally used as a wrapper of PHREEQC/IPHREEQC for easier handling of input data (e.g. multiple compositions, variable temperature, etc.) and output results (e.g. table processing, file updating, etc.). PHREEQC does the work, python is simply a convenient tool to simplify I/O automation and routines. This repo provides some tools to simplify this interaction even further with a few simple classes and functions to handle template strings, dataframe processing and dll backend.
+
+## When to use it 
+I  developed this tool to wrap phreeqc calculations into a data engineer framework, originally extracted from internal mining geochemistry work. Examples include: track precipitation risks in pipeline and monitor chemical performance evolution during time. It helps interfacing with KPI monitoring and multicomposition simulation when several samples need to be tested. Phreeqc is used as a "black box" of the type composition --> some result, and applied to one or more datasets.
+
+## When NOT to use this
+If you only need to run PHREEQC once or twice, just use phreeqpy or phreeqc directly — it's a few more lines but no abstraction overhead. This package helps when you have a chemistry table with N samples and the same simulation to run on each. 
 
 ## Core concepts
 
@@ -178,7 +187,9 @@ The `backend_factory` must be picklable (a module-level function or `staticmetho
 
 ## Custom backend
 
-Implement `PhreeqcBackend` to wrap a different binding:
+If `phreeqpy` ever stops being maintained, or a faster binding shows up, you
+can swap the backend by implementing this Protocol — the rest of the package
+doesn't care which one you use.
 
 ```python
 class MyBackend:
@@ -187,7 +198,6 @@ class MyBackend:
     def get_selected_output_array(self) -> list:
         ...
 ```
-
 ## Examples
 
 See [`examples/`](examples/) for runnable scripts:
@@ -195,6 +205,12 @@ See [`examples/`](examples/) for runnable scripts:
 - `01_density_single.py` — minimal single-sample density calculation.
 - `02_density_batch.py` — batch density over a DataFrame of brine samples.
 - `03_brine_mixing.py` — two-brine mixing with carbonate/sulfate equilibration.
+
+## Status
+
+Alpha. The core API (templates, tasks, runners, backend) is stable and tested.
+Future work may include additional backend implementations and richer
+post-processing utilities. Open to feedback and contributions.
 
 ## License
 
