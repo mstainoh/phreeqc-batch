@@ -36,7 +36,9 @@ examples = [
 ]
 
 [project.urls]
-Repository = "https://github.com/yourusername/phreeqpy-tools"
+Repository = "https://github.com/mstainoh/phreeqpy-tools"
+Homepage = "https://github.com/mstainoh/phreeqpy-tools"
+Issues = "https://github.com/mstainoh/phreeqpy-tools/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/phreeqpy_tools"]
