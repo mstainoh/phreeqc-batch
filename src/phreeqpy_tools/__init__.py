@@ -35,7 +35,7 @@ from .templates import (
     DEFAULT_SOLUTION_RUN_TEMPLATE,
 )
 from .composition import BaseComposition, GenericComposition, BrineComposition
-from .tasks import PhreeqcResult, PhreeqcTask
+from .tasks import PhreeqcResult, SolutionTask, MultiSolutionTask
 from .runner import PhreeqcBatchRunner, results_to_scalar_df, results_to_curve_dict
 from .backend import PhreeqcBackend, PhreeqpyBackend, create_phreeqcpy_instance
 
@@ -51,7 +51,8 @@ __all__ = [
     "BrineComposition",
     # tasks
     "PhreeqcResult",
-    "PhreeqcTask",
+    "SolutionTask",
+    "MultiSolutionTask",
     # runner
     "PhreeqcBatchRunner",
     "results_to_scalar_df",

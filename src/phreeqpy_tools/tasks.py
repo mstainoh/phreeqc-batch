@@ -1,25 +1,32 @@
-"""PHREEQC task definitions and result types for lithium brine geochemistry.
+"""PHREEQC task definitions and result types.
 
-Provides a generic task class that handles the full flow from composition
-dict to PHREEQC result: composition template filling, run template filling,
-execution, and output parsing.
+Provides a base task class, two concrete implementations, and a result
+container:
+
+- ``BaseTask``: abstract base — holds ``run_template``, implements ``run()``.
+- ``SolutionTask``: single-composition workflow.
+- ``MultiSolutionTask``: multi-composition workflow for MIX and multi-solution
+  PHREEQC blocks.
+- ``PhreeqcResult``: typed output container, backend-agnostic.
 """
 from __future__ import annotations
 
 import logging
-import numpy as np
 import pandas as pd
-from dataclasses import dataclass, field, fields
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar, Optional
 
 from .backend import PhreeqcBackend
 from .composition import BaseComposition
-
 from .templates import PhreeqcTemplate
 
 logger = logging.getLogger(__name__)
 
 Id = TypeVar("Id")
+
+# Composition input type accepted by both task classes
+_Composition = Optional[dict[str, Any] | BaseComposition]
 
 
 # ---------------------------------------------------------------------------
@@ -30,8 +37,8 @@ Id = TypeVar("Id")
 class PhreeqcResult(Generic[Id]):
     """Output container for a single PHREEQC task execution.
 
-    Decouples the identity of the input sample from the result, which
-    may be a scalar, a Series, or a full DataFrame depending on usage.
+    Decouples the identity of the input from the result, which may be
+    a scalar, a Series, or a full DataFrame depending on the task.
 
     Parameters
     ----------
@@ -39,10 +46,11 @@ class PhreeqcResult(Generic[Id]):
         Identifier inherited from the input row (str, int, tuple, etc.).
     task_name : str
         Name of the task that produced this result.
-    data : float or pd.Series or pd.DataFrame
+    data : any
         Primary result as returned by PHREEQC selected output.
+        Typically a ``pd.DataFrame`` with one row per simulation step.
     metadata : dict, optional
-        Supplementary values (e.g. ``hcl_consumed``, ``density``).
+        Supplementary values computed from the result after the run.
     """
 
     id: Id
@@ -60,29 +68,127 @@ def _selected_output_to_df(phreeqc: PhreeqcBackend) -> pd.DataFrame:
 
     Parameters
     ----------
-    phreeqc : phreeqc_mod.IPhreeqc
-        Instance after a successful ``run_string`` call.
+    phreeqc : PhreeqcBackend
+        Backend instance after a successful ``run`` call.
 
     Returns
     -------
     pd.DataFrame
-        First row of the array used as column headers.
+        First row of the array used as column headers; subsequent rows
+        as data.
     """
     arr = phreeqc.get_selected_output_array()
     return pd.DataFrame(arr[1:], columns=arr[0])
 
 
 # ---------------------------------------------------------------------------
-# Task
+# BaseTask
 # ---------------------------------------------------------------------------
 
 @dataclass
-class PhreeqcTask:
-    """Generic PHREEQC task: composition → template → run → result.
+class BaseTask(ABC):
+    """Abstract base for all PHREEQC tasks.
 
-    Handles the full flow from a composition dict to a PHREEQC result
-    DataFrame. The composition template is optional — when ``None`` the
-    run template is filled directly with ``**kwargs``.
+    Holds the run template and task name, implements the common ``run()``
+    execution flow, and delegates input construction to subclasses via
+    ``get_phreeqc_input()``.
+
+    Parameters
+    ----------
+    task_name : str
+        Human-readable identifier propagated to ``PhreeqcResult``.
+    run_template : PhreeqcTemplate
+        Full PHREEQC input block with named placeholders.
+    """
+
+    task_name: str
+    run_template: PhreeqcTemplate
+
+    @property
+    def extra_keys(self) -> set[str]:
+        """Placeholders in ``run_template`` not filled by composition templates.
+
+        These must be supplied as ``**kwargs`` when calling ``run``.
+
+        Returns
+        -------
+        set of str
+        """
+        return self.run_template.keys() - self._composition_keys()
+
+    @abstractmethod
+    def _composition_keys(self) -> set[str]:
+        """Placeholder keys in ``run_template`` handled by this task's
+        composition templates.
+
+        Returns
+        -------
+        set of str
+        """
+        ...
+
+    @abstractmethod
+    def get_phreeqc_input(self, *args, **kwargs) -> str:
+        """Build the PHREEQC input string without executing it.
+
+        Returns
+        -------
+        str
+            Complete PHREEQC input string ready to execute.
+        """
+        ...
+
+    def run(
+        self,
+        phreeqc: PhreeqcBackend,
+        id_: Optional[Any] = None,
+        *args,
+        **kwargs,
+    ) -> PhreeqcResult:
+        """Execute the task and return a typed result.
+
+        Calls ``get_phreeqc_input``, runs the backend, and wraps the
+        selected output in a ``PhreeqcResult``.
+
+        Parameters
+        ----------
+        phreeqc : PhreeqcBackend
+            Backend instance with a loaded database.
+        id_ : any, optional
+            Identifier propagated to the result.
+        *args, **kwargs
+            Forwarded to ``get_phreeqc_input``.
+
+        Returns
+        -------
+        PhreeqcResult
+            ``data`` is the selected output as a ``pd.DataFrame``.
+
+        Raises
+        ------
+        RuntimeError
+            If PHREEQC fails to execute the input (raised by the backend).
+        """
+        phreeqc_input = self.get_phreeqc_input(*args, **kwargs)
+        phreeqc.run(phreeqc_input)
+        return PhreeqcResult(
+            id=id_,
+            task_name=self.task_name,
+            data=_selected_output_to_df(phreeqc),
+        )
+
+
+# ---------------------------------------------------------------------------
+# SolutionTask — single composition
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SolutionTask(BaseTask):
+    """Single-composition PHREEQC task.
+
+    One composition dict fills one named placeholder in ``run_template``.
+    The composition template is optional — when ``None``, the run template
+    is filled entirely via ``**kwargs``.
 
     Validation on construction:
 
@@ -96,48 +202,31 @@ class PhreeqcTask:
     task_name : str
         Human-readable identifier propagated to ``PhreeqcResult``.
     run_template : PhreeqcTemplate
-        Full PHREEQC input block. Contains ``{composition_key}`` when
-        a ``composition_template`` is provided, plus any extra
-        placeholders filled via ``**kwargs`` in ``run``.
+        Full PHREEQC input block.
     composition_template : PhreeqcTemplate, optional
-        Template filled with composition values to produce the string
-        injected as ``composition_key`` into ``run_template``.
-    composition_key : str, default "composition_str"
-        Name of the placeholder in ``run_template`` that receives the
-        filled composition string.
+        Template filled with composition values and injected as
+        ``composition_key`` into ``run_template``.
+    composition_key : str, default ``"composition_str"``
+        Placeholder name in ``run_template`` that receives the filled
+        composition string.
 
     Examples
     --------
     Density task:
 
-    >>> task = PhreeqcTask(
+    >>> task = SolutionTask(
     ...     task_name="density",
     ...     run_template=DEFAULT_SOLUTION_RUN_TEMPLATE,
     ...     composition_template=DEFAULT_COMPOSITION_TEMPLATE,
     ... )
-    >>> result = task.run(composition, id_="PW04", phreeqc=ph)
+    >>> result = task.run(phreeqc=backend, id_="PW04", composition=sample)
 
-    Acidification task with extra params:
+    Task without composition template:
 
-    >>> task = PhreeqcTask(
-    ...     task_name="acidification",
-    ...     run_template=DEFAULT_ACIDIFICATION_RUN_TEMPLATE,
-    ...     composition_template=DEFAULT_COMPOSITION_TEMPLATE,
-    ... )
-    >>> result = task.run(composition, id_="PW04", phreeqc=ph,
-    ...                   hcl_conc=0.32, hcl_dens=1.16)
-
-    Direct template without composition:
-
-    >>> task = PhreeqcTask(
-    ...     task_name="custom",
-    ...     run_template=my_template,
-    ... )
-    >>> result = task.run({}, id_="test", phreeqc=ph, param1=1.0)
+    >>> task = SolutionTask(task_name="custom", run_template=my_template)
+    >>> result = task.run(phreeqc=backend, id_="test", param1=1.0)
     """
 
-    task_name: str
-    run_template: PhreeqcTemplate
     composition_template: Optional[PhreeqcTemplate] = None
     composition_key: str = "composition_str"
 
@@ -155,106 +244,215 @@ class PhreeqcTask:
                 f"but no composition_template was provided."
             )
 
-    @property
-    def requires_composition(self) -> bool:
-        return self.composition_template is not None
+    def _composition_keys(self) -> set[str]:
+        return {self.composition_key} if self.composition_template is not None else set()
 
-    @property
-    def extra_keys(self) -> set[str]:
-        """Placeholders in ``run_template`` beyond ``composition_key``.
-
-        These must be supplied as ``**kwargs`` when calling ``run``.
-
-        Returns
-        -------
-        set of str
-        """
-        return self.run_template.keys() - {self.composition_key}
-
-    def get_phreeqc_input(self, 
-            composition: Optional[dict[str, Any] | BaseComposition] = None,
-            **kwargs,) -> str:
-        """Execute the task for one sample.
-
-        Fills the composition template (if present), then fills the run
-        template with the composition string and any extra ``kwargs``,
+    def get_phreeqc_input(
+        self,
+        composition: _Composition = None,
+        **kwargs,
+    ) -> str:
+        """Build the PHREEQC input string without executing it.
 
         Parameters
         ----------
-        composition : dict of str to float, optional
-            PHREEQC-keyed composition dict. Ignored when
-            ``composition_template`` is ``None``.
+        composition : dict or BaseComposition, optional
+            Composition values. Required when ``composition_template``
+            is set.
         **kwargs
-            Extra values for ``run_template`` placeholders beyond
-            ``composition_key`` (e.g. ``hcl_conc``, ``hcl_dens``).
+            Extra values for any remaining ``run_template`` placeholders.
 
         Returns
         -------
         str
-            phreeqc input string.
+            Complete PHREEQC input string.
 
         Raises
         ------
+        ValueError
+            If ``composition_template`` is set but no composition is supplied.
         KeyError
-            If composition or kwargs are missing keys required by
-            the respective templates.
+            If required template placeholders are missing.
         """
         fill_dict = dict(kwargs)
         if self.composition_template is not None:
             if composition is None:
                 raise ValueError(
                     f"[{self.task_name}] composition_template provided but no "
-                    f"composition dict supplied."
+                    f"composition supplied."
                 )
             fill_dict[self.composition_key] = self.composition_template.fill(**composition)
-
-        phreeqc_input = self.run_template.fill(**fill_dict)
-        return phreeqc_input
+        return self.run_template.fill(**fill_dict)
 
     def run(
         self,
         phreeqc: PhreeqcBackend,
         id_: Optional[Any] = None,
-        composition: Optional[dict[str, Any] | BaseComposition] = None,
+        composition: _Composition = None,
         **kwargs,
     ) -> PhreeqcResult:
         """Execute the task for one sample.
 
-        Fills the composition template (if present), then fills the run
-        template with the composition string and any extra ``kwargs``,
-        executes PHREEQC, and returns the selected output as a DataFrame.
-
-        Both ``PhreeqcTemplate.fill`` calls validate their keys
-        internally — missing keys raise ``KeyError``.
-
         Parameters
         ----------
-        phreeqc : PhreeqpyBackend
-            Loaded IPhreeqc instance.
+        phreeqc : PhreeqcBackend
+            Backend instance with a loaded database.
         id_ : any, optional
             Sample identifier propagated to the result.
-        composition : dict of str to float, optional
-            PHREEQC-keyed composition dict. Ignored when
-            ``composition_template`` is ``None``.
+        composition : dict or BaseComposition, optional
+            Composition values. Required when ``composition_template``
+            is set.
         **kwargs
-            Extra values for ``run_template`` placeholders beyond
-            ``composition_key`` (e.g. ``hcl_conc``, ``hcl_dens``).
+            Extra values for any remaining ``run_template`` placeholders.
 
         Returns
         -------
         PhreeqcResult
-            ``data`` is the selected output as a DataFrame.
+            ``data`` is the selected output as a ``pd.DataFrame``.
+        """
+        return super().run(phreeqc, id_, composition, **kwargs)
+
+
+# ---------------------------------------------------------------------------
+# MultiSolutionTask — multiple compositions
+# ---------------------------------------------------------------------------
+
+@dataclass
+class MultiSolutionTask(BaseTask):
+    """Multi-composition PHREEQC task for MIX and multi-solution blocks.
+
+    Multiple named composition dicts each fill a named placeholder in
+    ``run_template``, enabling ``MIX``, reaction transport, or any
+    PHREEQC block requiring more than one ``SOLUTION``.
+
+    Validation on construction:
+
+    - Every key in ``composition_templates`` must appear as a placeholder
+      in ``run_template``.
+
+    Parameters
+    ----------
+    task_name : str
+        Human-readable identifier propagated to ``PhreeqcResult``.
+    run_template : PhreeqcTemplate
+        Full PHREEQC input block with one placeholder per solution
+        (e.g. ``{solution_1}``, ``{solution_2}``), plus any extra
+        placeholders filled via ``**kwargs``.
+    composition_templates : dict of str to PhreeqcTemplate
+        Mapping of placeholder key → composition template.
+
+    Examples
+    --------
+    >>> MIX_TEMPLATE = PhreeqcTemplate(r\"\"\"
+    ... SOLUTION 1
+    ... {solution_1}
+    ... SOLUTION 2
+    ... {solution_2}
+    ... MIX 3
+    ...   1  {fraction_1}
+    ...   2  {fraction_2}
+    ... SELECTED_OUTPUT
+    ...   -reset false
+    ...   -saturation_indices Calcite Halite
+    ... END
+    ... \"\"\")
+    >>>
+    >>> task = MultiSolutionTask(
+    ...     task_name="mixing",
+    ...     run_template=MIX_TEMPLATE,
+    ...     composition_templates={
+    ...         "solution_1": DEFAULT_COMPOSITION_TEMPLATE,
+    ...         "solution_2": DEFAULT_COMPOSITION_TEMPLATE,
+    ...     },
+    ... )
+    >>> result = task.run(
+    ...     phreeqc=backend,
+    ...     id_="mix_01",
+    ...     compositions={
+    ...         "solution_1": brine_a,
+    ...         "solution_2": meteoric_water,
+    ...     },
+    ...     fraction_1=0.7,
+    ...     fraction_2=0.3,
+    ... )
+    """
+
+    composition_templates: dict[str, PhreeqcTemplate] = field(default_factory=dict)
+
+    def __post_init__(self):
+        missing = set(self.composition_templates) - self.run_template.keys()
+        if missing:
+            raise ValueError(
+                f"[{self.task_name}] composition keys not found in run_template: "
+                f"{sorted(missing)}"
+            )
+
+    def _composition_keys(self) -> set[str]:
+        return set(self.composition_templates)
+
+    def get_phreeqc_input(
+        self,
+        compositions: dict[str, _Composition],
+        **kwargs,
+    ) -> str:
+        """Build the PHREEQC input string without executing it.
+
+        Parameters
+        ----------
+        compositions : dict of str to composition
+            Mapping of placeholder key → composition dict or
+            ``BaseComposition``. Must contain one entry per key in
+            ``composition_templates``.
+        **kwargs
+            Extra values for any remaining ``run_template`` placeholders
+            (e.g. mixing fractions).
+
+        Returns
+        -------
+        str
+            Complete PHREEQC input string.
 
         Raises
         ------
+        ValueError
+            If a required composition key is absent from ``compositions``.
         KeyError
-            If composition or kwargs are missing keys required by
-            the respective templates.
+            If required template placeholders are missing.
         """
-        phreeqc_input = self.get_phreeqc_input(composition, **kwargs)
-        phreeqc.run(phreeqc_input)  # error handling encapsulado en el backend
-        return PhreeqcResult(
-            id=id_,
-            task_name=self.task_name,
-            data=_selected_output_to_df(phreeqc),
-        )
+        fill_dict = dict(kwargs)
+        for key, template in self.composition_templates.items():
+            composition = compositions.get(key)
+            if composition is None:
+                raise ValueError(
+                    f"[{self.task_name}] missing composition for key '{key}'."
+                )
+            fill_dict[key] = template.fill(**composition)
+        return self.run_template.fill(**fill_dict)
+
+    def run(
+        self,
+        phreeqc: PhreeqcBackend,
+        compositions: dict[str, _Composition],
+        id_: Optional[Any] = None,
+        **kwargs,
+    ) -> PhreeqcResult:
+        """Execute the task with multiple compositions.
+
+        Parameters
+        ----------
+        phreeqc : PhreeqcBackend
+            Backend instance with a loaded database.
+        compositions : dict of str to composition
+            Mapping of placeholder key → composition dict or
+            ``BaseComposition``.
+        id_ : any, optional
+            Identifier propagated to the result.
+        **kwargs
+            Extra values for any remaining ``run_template`` placeholders.
+
+        Returns
+        -------
+        PhreeqcResult
+            ``data`` is the selected output as a ``pd.DataFrame``.
+        """
+        return super().run(phreeqc, id_, compositions, **kwargs)
