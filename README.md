@@ -1,11 +1,9 @@
 ![Python](https://img.shields.io/badge/python-3.10+-blue.svg)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-# phreeqpy-tools
+# phreeqc-batch
 
-Structured PHREEQC workflows over [phreeqpy](https://github.com/hydrocomputing/phreeqpy).
-
-phreeqpy-tools provides a thin but opinionated layer on top of phreeqpy's IPhreeqc bindings:
+phreeqc-batch provides a thin but opinionated layer on top of PHREEQC bindings (eg. phreeqpy's IPhreeqc):
 template-based input building, typed task execution, and batch processing over DataFrames —
 without hiding the PHREEQC input format from you.
 
@@ -34,7 +32,7 @@ If you only need to run PHREEQC once or twice, just use phreeqpy or phreeqc dire
 ## Installation
 
 ```bash
-pip install phreeqpy-tools
+pip install phreeqc-batch
 ```
 
 Requires Python ≥ 3.10 and phreeqpy.
@@ -44,7 +42,7 @@ Requires Python ≥ 3.10 and phreeqpy.
 ```python
 from pathlib import Path
 import pandas as pd
-from phreeqpy_tools import (
+from phreeqc_batch import (
     PhreeqcTemplate,
     SolutionTask,
     SolutionBatchRunner,
@@ -81,7 +79,7 @@ task = SolutionTask(
 )
 
 backend = PhreeqpyBackend.create_from_database(
-    Path("phreeqc_database/pitzer.dat")
+    Path("databases/pitzer.dat")
 )
 
 # Run over a DataFrame of samples.
@@ -101,7 +99,7 @@ The runner pulls only the columns the composition template needs, so extra DataF
 Any PHREEQC input block can be wrapped in a `PhreeqcTemplate`:
 
 ```python
-from phreeqpy_tools import PhreeqcTemplate, SolutionTask
+from phreeqc_batch import PhreeqcTemplate, SolutionTask
 
 si_template = PhreeqcTemplate(r"""
 SOLUTION 1
@@ -123,7 +121,7 @@ task = SolutionTask(
 ## Multi-solution tasks (MIX, reaction transport)
 
 ```python
-from phreeqpy_tools import MultiSolutionTask, MultiSolutionBatchRunner
+from phreeqc_batch import MultiSolutionTask, MultiSolutionBatchRunner
 
 mix_template = PhreeqcTemplate(r"""
 SOLUTION 1
@@ -174,7 +172,7 @@ For large batches, use `run_parallel`. Each worker process creates and caches it
 
 ```python
 def make_backend():
-    return PhreeqpyBackend.create_from_database(Path("phreeqc_database/pitzer.dat"))
+    return PhreeqpyBackend.create_from_database(Path("databases/pitzer.dat"))
 
 results = runner.run_parallel(
     df,
@@ -198,6 +196,7 @@ class MyBackend:
     def get_selected_output_array(self) -> list:
         ...
 ```
+
 ## Examples
 
 See [`examples/`](examples/) for runnable scripts:
@@ -205,6 +204,7 @@ See [`examples/`](examples/) for runnable scripts:
 - `01_density_single.py` — minimal single-sample density calculation.
 - `02_density_batch.py` — batch density over a DataFrame of brine samples.
 - `03_brine_mixing.py` — two-brine mixing with carbonate/sulfate equilibration.
+- `04_saturation_indices_puna.py` — saturation indices over a public dataset of salars from the Puna region.
 
 ## Status
 

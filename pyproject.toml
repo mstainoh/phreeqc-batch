@@ -5,7 +5,8 @@ build-backend = "hatchling.build"
 [project]
 name = "phreeqc-batch"
 version = "0.1.0"
-description = "Structured PHREEQC workflows over phreeqpy: template-based composition building, typed task execution, and batch processing."
+authors = [{ name = "M. Stainoh" }]
+description = "Structured PHREEQC workflows over python phreeqc bindings: template-based composition building, typed task execution, and batch processing."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
@@ -30,10 +31,6 @@ dev = [
     "pytest>=7.0",
     "pytest-cov",
 ]
-examples = [
-    "jupyter",
-    "matplotlib",
-]
 
 [project.urls]
 Repository = "https://github.com/mstainoh/phreeqc-batch"
@@ -41,10 +38,10 @@ Homepage = "https://github.com/mstainoh/phreeqc-batch"
 Issues = "https://github.com/mstainoh/phreeqc-batch/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/phreeqpy_tools"]
+packages = ["src/phreeqc_batch"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"databases" = "phreeqpy_tools/databases"
+"databases" = "phreeqc_batch/databases"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
