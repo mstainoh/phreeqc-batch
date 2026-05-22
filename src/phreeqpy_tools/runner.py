@@ -2,18 +2,25 @@
 
 Provides three batch runners and post-processing utilities:
 
-- ``BaseBatchRunner``: abstract base — handles iteration and error logging.
+- ``BaseBatchRunner``: abstract base — handles iteration, error logging,
+  and optional parallel execution.
 - ``SolutionBatchRunner``: runs a ``SolutionTask`` over a DataFrame or a
   dict of compositions.
 - ``MultiSolutionBatchRunner``: runs a ``MultiSolutionTask`` over a list
   of per-job dicts.
+
+Each runner exposes both ``run`` (sequential, shares one backend instance)
+and ``run_parallel`` (process-based parallelism, each worker process
+creates and caches its own backend).
 """
 from __future__ import annotations
 
 import logging
+import os
 from abc import ABC, abstractmethod
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Optional, Union
+from typing import Any, Callable, Iterable, Optional, Union
 
 import pandas as pd
 
@@ -26,6 +33,35 @@ from .tasks import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Worker-side helpers for parallel execution
+# ---------------------------------------------------------------------------
+
+# Per-process backend cache. Each worker process initializes its own backend
+# once on first use and reuses it for all subsequent jobs in that process.
+_WORKER_BACKEND: Optional[PhreeqcBackend] = None
+
+
+def _get_worker_backend(backend_factory: Callable[[], PhreeqcBackend]) -> PhreeqcBackend:
+    """Return this process's backend, creating it on first call."""
+    global _WORKER_BACKEND
+    if _WORKER_BACKEND is None:
+        _WORKER_BACKEND = backend_factory()
+    return _WORKER_BACKEND
+
+
+def _run_one_job(
+    task: BaseTask,
+    backend_factory: Callable[[], PhreeqcBackend],
+    id_: Any,
+    run_kwargs: dict[str, Any],
+    extra_keys: dict[str, Any],
+) -> PhreeqcResult:
+    """Execute one job in a worker process. Must be picklable."""
+    backend = _get_worker_backend(backend_factory)
+    return task.run(phreeqc=backend, id_=id_, **run_kwargs, **extra_keys)
 
 
 # ---------------------------------------------------------------------------
@@ -116,6 +152,115 @@ class BaseBatchRunner(ABC):
         )
         return results
 
+    def run_parallel(
+        self,
+        data: Any,
+        backend_factory: Callable[[], PhreeqcBackend],
+        n_workers: Optional[int] = None,
+        preserve_order: bool = True,
+    ) -> list[PhreeqcResult]:
+        """Execute the task in parallel using a process pool.
+
+        Each worker process creates and caches its own backend on first
+        use (via ``backend_factory``), then reuses it for all subsequent
+        jobs assigned to that worker. This amortizes the backend
+        initialization cost (typically ~100ms and ~50MB per process).
+
+        Parallel execution is only worth the overhead for batches of
+        roughly 50+ jobs. For smaller batches, prefer ``run``.
+
+        A failed job is logged and skipped — the batch continues.
+
+        Parameters
+        ----------
+        data : any
+            Subclass-specific input (same as ``run``).
+        backend_factory : callable
+            Zero-argument callable that returns a fresh ``PhreeqcBackend``.
+            Each worker process calls it once. Must be picklable —
+            module-level functions and ``staticmethod`` work; lambdas
+            and closures over local state do not.
+        n_workers : int, optional
+            Number of worker processes. Defaults to ``os.cpu_count()``.
+        preserve_order : bool, default True
+            If True, results are returned in the same order as ``iter_jobs``
+            yields jobs (matches the sequential ``run``). If False, results
+            are returned as workers complete them, which can reveal
+            partial progress sooner but produces non-deterministic order.
+
+        Returns
+        -------
+        list of PhreeqcResult
+
+        Examples
+        --------
+        >>> from phreeqpy_tools import PhreeqpyBackend
+        >>> def make_backend():
+        ...     return PhreeqpyBackend.create_from_database(Path("pitzer.dat"))
+        >>> results = runner.run_parallel(df, backend_factory=make_backend, n_workers=4)
+        """
+        jobs = list(self.iter_jobs(data))
+        n = len(jobs)
+        n_workers = n_workers or os.cpu_count() or 1
+        results: list[PhreeqcResult] = []
+
+        logger.info(
+            "[%s] parallel batch: %d jobs on %d workers",
+            self.task.task_name, n, n_workers,
+        )
+
+        with ProcessPoolExecutor(max_workers=n_workers) as executor:
+            futures = {
+                executor.submit(
+                    _run_one_job,
+                    self.task,
+                    backend_factory,
+                    id_,
+                    run_kwargs,
+                    self.extra_keys,
+                ): (i, id_)
+                for i, (id_, run_kwargs) in enumerate(jobs)
+            }
+
+            if preserve_order:
+                # collect into a slot list, then strip None for failures
+                slots: list[Optional[PhreeqcResult]] = [None] * n
+                for future, (i, id_) in futures.items():
+                    try:
+                        slots[i] = future.result()
+                        logger.debug(
+                            "[%s] %d/%d (id=%s) done",
+                            self.task.task_name, i + 1, n, id_,
+                        )
+                    except Exception:
+                        logger.error(
+                            "[%s] %d/%d (id=%s) failed",
+                            self.task.task_name, i + 1, n, id_,
+                            exc_info=True,
+                        )
+                results = [r for r in slots if r is not None]
+            else:
+                for future in as_completed(futures):
+                    i, id_ = futures[future]
+                    try:
+                        results.append(future.result())
+                        logger.debug(
+                            "[%s] %d/%d (id=%s) done",
+                            self.task.task_name, i + 1, n, id_,
+                        )
+                    except Exception:
+                        logger.error(
+                            "[%s] %d/%d (id=%s) failed",
+                            self.task.task_name, i + 1, n, id_,
+                            exc_info=True,
+                        )
+
+        logger.info(
+            "[%s] parallel batch complete: %d/%d succeeded",
+            self.task.task_name, len(results), n,
+        )
+        return results
+
 
 # ---------------------------------------------------------------------------
 # SolutionBatchRunner
@@ -150,7 +295,7 @@ class SolutionBatchRunner(BaseBatchRunner):
     >>> results = runner.run(df, phreeqc=backend)
     """
 
-    task: SolutionTask = None  # type: ignore[assignment]
+    task: SolutionTask
     composition_cols: Optional[list[str]] = None
     id_col: Optional[str] = None
 
@@ -228,7 +373,7 @@ class MultiSolutionBatchRunner(BaseBatchRunner):
     >>> results = runner.run(jobs, phreeqc=backend)
     """
 
-    task: MultiSolutionTask = None  # type: ignore[assignment]
+    task: MultiSolutionTask
 
     def iter_jobs(
         self,
