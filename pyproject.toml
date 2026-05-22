@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "phreeqpy-tools"
+name = "phreeqc-batch"
 version = "0.1.0"
 description = "Structured PHREEQC workflows over phreeqpy: template-based composition building, typed task execution, and batch processing."
 readme = "README.md"
@@ -36,9 +36,9 @@ examples = [
 ]
 
 [project.urls]
-Repository = "https://github.com/mstainoh/phreeqpy-tools"
-Homepage = "https://github.com/mstainoh/phreeqpy-tools"
-Issues = "https://github.com/mstainoh/phreeqpy-tools/issues"
+Repository = "https://github.com/mstainoh/phreeqc-batch"
+Homepage = "https://github.com/mstainoh/phreeqc-batch"
+Issues = "https://github.com/mstainoh/phreeqc-batch/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/phreeqpy_tools"]
