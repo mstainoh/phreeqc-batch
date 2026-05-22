@@ -1,131 +1,264 @@
-"""Batch execution of PHREEQC tasks over DataFrames.
+"""Batch execution of PHREEQC tasks.
 
-Provides ``PhreeqcBatchRunner`` for applying a ``PhreeqcTask`` row by row
-on a DataFrame, collecting ``PhreeqcResult`` objects, and utility functions
-for creating PHREEQC instances and post-processing results.
+Provides three batch runners and post-processing utilities:
+
+- ``BaseBatchRunner``: abstract base — handles iteration and error logging.
+- ``SolutionBatchRunner``: runs a ``SolutionTask`` over a DataFrame or a
+  dict of compositions.
+- ``MultiSolutionBatchRunner``: runs a ``MultiSolutionTask`` over a list
+  of per-job dicts.
 """
 from __future__ import annotations
 
 import logging
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Optional, Union
+from typing import Any, Iterable, Optional, Union
 
 import pandas as pd
 
 from .backend import PhreeqcBackend
-
-from .composition import BaseComposition
-
-from .tasks import PhreeqcTask, PhreeqcResult
+from .tasks import (
+    BaseTask,
+    MultiSolutionTask,
+    PhreeqcResult,
+    SolutionTask,
+)
 
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Runner
+# BaseBatchRunner
 # ---------------------------------------------------------------------------
-@dataclass
-class PhreeqcBatchRunner:
-    """Apply a ``PhreeqcTask`` row by row over a DataFrame.
 
-    The runner handles iteration, composition extraction, instance
-    management, and error logging. The DataFrame is expected to arrive
-    clean — no renaming or filtering is done here.
+@dataclass
+class BaseBatchRunner(ABC):
+    """Abstract base for batch runners.
+
+    Provides the iteration loop, error logging, and result collection.
+    Subclasses define how input data is converted into per-job arguments
+    via ``iter_jobs``.
 
     Parameters
     ----------
-    task : PhreeqcTask
-        Task to execute on each row.
-    composition_cols : list of str. Optional
-        Columns mapped to composition fields. Passed directly
-        to ``task.run`` as a dict. If None, will take all dataframe columns
-    id_col : str, optional. Default None
-        Column in the DataFrame used as the sample identifier. if None, will use df.index
-    kwargs : dict, optional
-        Extra keyword arguments forwarded to every ``task.run`` call
-        (e.g. ``hcl_conc``, ``hcl_dens``).
-
-    Examples
-    --------
-    >>> runner = PhreeqcBatchRunner(
-    ...     task=density_task,
-    ...     id_col="id",
-    ...     composition_cols=["Na", "Cl", "pH", "temp", "density"],
-    ... )
-    >>> results = runner.run(df)
+    task : BaseTask
+        Task to execute on each job.
+    extra_keys : dict, optional
+        Keyword arguments forwarded to every ``task.run`` call (e.g.
+        constant reaction parameters).
     """
 
-    task: PhreeqcTask
-    composition_cols: Optional[list[str]] = None
-    id_col: Optional[str] = None
+    task: BaseTask
     extra_keys: dict[str, Any] = field(default_factory=dict)
 
-    def get_phreeqc_input(self, composition, **kwargs) -> str:
-        """
-        wrapper for self.task.get_phreeqc_input
-        """
-        return self.task.get_phreeqc_input(composition, **kwargs)
+    @abstractmethod
+    def iter_jobs(self, data: Any) -> Iterable[tuple[Any, dict[str, Any]]]:
+        """Yield ``(id_, run_kwargs)`` pairs from input data.
 
-    def get_composition_dict(self, data: pd.DataFrame) -> dict[Any, dict[str, Any]]:
-        """
-        """
-        out = dict()
-        for (ix, row) in data.iterrows():
-            id_ = row[self.id_col] if self.id_col else ix
-            composition = {col: row[col] for col in self.composition_cols or data.columns}
-            out[id_] = composition
-        return out
-
-    def run(self, data: Union[pd.DataFrame, dict[Any, Union[dict[str, Any], BaseComposition]]],
-            phreeqc: PhreeqcBackend) -> list[PhreeqcResult]:
-        """Execute the task on every row of the DataFrame.
-
-        Creates a PHREEQC instance if none was injected. Logs progress
-        at ``DEBUG`` level and errors at ``ERROR`` level. A failed row
-        does not stop the batch — it is logged and skipped.
+        Each ``run_kwargs`` is merged with ``self.extra_keys`` and
+        passed to ``task.run`` as keyword arguments.
 
         Parameters
         ----------
-        data : pd.DataFrame
-            Input DataFrame with ``id_col`` and all ``composition_cols``.
-        phreeqc : phreeqc_mod.IPhreeqc
-            Loaded IPhreeqc instance.
+        data : any
+            Subclass-specific input.
+
+        Yields
+        ------
+        tuple of (id, dict)
+        """
+        ...
+
+    def run(self, data: Any, phreeqc: PhreeqcBackend) -> list[PhreeqcResult]:
+        """Execute the task over every job and collect results.
+
+        A failed job is logged and skipped — the batch continues.
+
+        Parameters
+        ----------
+        data : any
+            Subclass-specific input.
+        phreeqc : PhreeqcBackend
+            Loaded backend instance.
 
         Returns
         -------
         list of PhreeqcResult
-            One result per successfully processed row.
         """
-        n = len(data)
-        results = []
+        jobs = list(self.iter_jobs(data))
+        n = len(jobs)
+        results: list[PhreeqcResult] = []
 
-        if isinstance(data, pd.DataFrame):
-            composition_dict = self.get_composition_dict(data)
-        else:
-            composition_dict = data
-
-        for i, (id_, composition) in enumerate(composition_dict.items()):
+        for i, (id_, run_kwargs) in enumerate(jobs):
             try:
                 result = self.task.run(
-                    composition=composition, id_=id_, phreeqc=phreeqc, **self.extra_keys
+                    phreeqc=phreeqc,
+                    id_=id_,
+                    **run_kwargs,
+                    **self.extra_keys,
                 )
                 results.append(result)
+                logger.debug(
+                    "[%s] %d/%d (id=%s) done",
+                    self.task.task_name, i + 1, n, id_,
+                )
             except Exception:
                 logger.error(
-                    "[%s] row %d/%d (id=%s) failed", self.task.task_name, i + 1, n, id_,
+                    "[%s] %d/%d (id=%s) failed",
+                    self.task.task_name, i + 1, n, id_,
                     exc_info=True,
                 )
-                continue
-
-            logger.debug(
-                "[%s] row %d/%d (id=%s) done", self.task.task_name, i + 1, n, id_,
-            )
 
         logger.info(
-            "[%s] batch complete: %d/%d rows succeeded",
+            "[%s] batch complete: %d/%d succeeded",
             self.task.task_name, len(results), n,
         )
         return results
+
+
+# ---------------------------------------------------------------------------
+# SolutionBatchRunner
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SolutionBatchRunner(BaseBatchRunner):
+    """Batch runner for ``SolutionTask`` over a DataFrame or dict.
+
+    The DataFrame case is the common path for processing chemistry tables:
+    each row contributes one composition. The dict case is provided for
+    pre-built compositions keyed by id.
+
+    Parameters
+    ----------
+    task : SolutionTask
+        Task to execute on each row.
+    composition_cols : list of str, optional
+        Columns to extract as composition keys. If ``None``, uses the
+        task's composition template keys (recommended). Pass an explicit
+        list only when the DataFrame has extra columns to ignore that
+        are not in the template.
+    id_col : str, optional
+        Column to use as sample identifier. If ``None``, uses the
+        DataFrame index.
+    extra_keys : dict, optional
+        Keyword arguments forwarded to every ``task.run`` call.
+
+    Examples
+    --------
+    >>> runner = SolutionBatchRunner(task=density_task, id_col="sample_id")
+    >>> results = runner.run(df, phreeqc=backend)
+    """
+
+    task: SolutionTask = None  # type: ignore[assignment]
+    composition_cols: Optional[list[str]] = None
+    id_col: Optional[str] = None
+
+    def _resolve_composition_cols(self) -> set[str]:
+        """Return the set of columns to extract as composition keys."""
+        if self.composition_cols is not None:
+            return set(self.composition_cols)
+        if self.task.composition_template is None:
+            return set()
+        return self.task.composition_template.keys()
+
+    def iter_jobs(
+        self,
+        data: Union[pd.DataFrame, dict[Any, dict[str, Any]]],
+    ) -> Iterable[tuple[Any, dict[str, Any]]]:
+        """Yield ``(id_, {"composition": dict})`` pairs.
+
+        Parameters
+        ----------
+        data : pd.DataFrame or dict
+            DataFrame with composition columns (and optionally ``id_col``),
+            or a ``{id: composition_dict}`` mapping.
+
+        Yields
+        ------
+        tuple of (id, dict)
+        """
+        if isinstance(data, pd.DataFrame):
+            cols = self._resolve_composition_cols()
+            for ix, row in data.iterrows():
+                id_ = row[self.id_col] if self.id_col else ix
+                composition = {c: row[c] for c in cols} if cols else {}
+                yield id_, {"composition": composition}
+        else:
+            for id_, composition in data.items():
+                yield id_, {"composition": composition}
+
+
+# ---------------------------------------------------------------------------
+# MultiSolutionBatchRunner
+# ---------------------------------------------------------------------------
+
+@dataclass
+class MultiSolutionBatchRunner(BaseBatchRunner):
+    """Batch runner for ``MultiSolutionTask`` over a list of job dicts.
+
+    Each job is a dict containing:
+
+    - ``id`` (optional): identifier propagated to the result.
+    - ``compositions``: dict of placeholder key → composition dict,
+      one entry per key in ``task.composition_templates``.
+    - any extra keys: forwarded as ``**kwargs`` to ``task.run`` (e.g.
+      mixing fractions, reaction amounts).
+
+    Parameters
+    ----------
+    task : MultiSolutionTask
+        Task to execute on each job.
+    extra_keys : dict, optional
+        Keyword arguments forwarded to every ``task.run`` call (constants
+        shared across all jobs).
+
+    Examples
+    --------
+    >>> jobs = [
+    ...     {
+    ...         "id": "mix_01",
+    ...         "compositions": {"solution_1": brine_a, "solution_2": water},
+    ...         "fraction_1": 0.5,
+    ...         "fraction_2": 0.5,
+    ...     },
+    ...     ...
+    ... ]
+    >>> runner = MultiSolutionBatchRunner(task=mix_task)
+    >>> results = runner.run(jobs, phreeqc=backend)
+    """
+
+    task: MultiSolutionTask = None  # type: ignore[assignment]
+
+    def iter_jobs(
+        self,
+        data: list[dict[str, Any]],
+    ) -> Iterable[tuple[Any, dict[str, Any]]]:
+        """Yield ``(id_, run_kwargs)`` pairs from a list of job dicts.
+
+        Parameters
+        ----------
+        data : list of dict
+            Each dict must contain ``compositions`` and may contain ``id``
+            and additional keyword arguments for ``task.run``.
+
+        Yields
+        ------
+        tuple of (id, dict)
+
+        Raises
+        ------
+        ValueError
+            If a job is missing the ``compositions`` key.
+        """
+        for i, job in enumerate(data):
+            if "compositions" not in job:
+                raise ValueError(
+                    f"Job {i} missing required 'compositions' key."
+                )
+            id_ = job.get("id", i)
+            run_kwargs = {k: v for k, v in job.items() if k != "id"}
+            yield id_, run_kwargs
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +268,7 @@ class PhreeqcBatchRunner:
 def results_to_scalar_df(
     results: list[PhreeqcResult],
     id_col: str = "id",
-    scalar_key: str | None = None,
+    scalar_key: Optional[str] = None,
 ) -> pd.DataFrame:
     """Flatten scalar results into a DataFrame.
 
@@ -143,7 +276,7 @@ def results_to_scalar_df(
     ----------
     results : list of PhreeqcResult
         Results from a batch run.
-    id_col : str, default "id"
+    id_col : str, default ``"id"``
         Column name for the sample identifier.
     scalar_key : str, optional
         If ``None``, uses ``result.data`` directly as the value.
@@ -170,7 +303,7 @@ def results_to_curve_dict(
     Parameters
     ----------
     results : list of PhreeqcResult
-        Results where ``data`` is a DataFrame (e.g. acidification curves).
+        Results where ``data`` is a DataFrame (e.g. titration curves).
 
     Returns
     -------

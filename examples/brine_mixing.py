@@ -15,8 +15,9 @@ import pandas as pd
 from phreeqpy_tools import (
     PhreeqcTemplate,
     MultiSolutionTask,
-    create_phreeqcpy_instance,
+    PhreeqpyBackend,
 )
+import phreeqpy.iphreeqc.phreeqc_dll as phreeqc_mod
 
 # ---------------------------------------------------------------------------
 # Composition template — minimal: pH, temp, pe, units, ions
@@ -29,9 +30,9 @@ COMP_TEMPLATE = PhreeqcTemplate("""\
     units   {units}
     Ca      {Ca}
     Na      {Na}
-    Cl      {Cl}
-    S(6)    {SO4}
-    C(4)    {HCO3}
+    Cl      {Cl}    charge      
+    S(6)  AS SO4  {SO4}
+    C(+4) AS HCO3    {HCO3}
 """)
 
 # ---------------------------------------------------------------------------
@@ -69,15 +70,16 @@ END
 # ---------------------------------------------------------------------------
 
 # Formation water: Ca-SO4 type
+units = 'mg/kgw'
 formation_water = {
-    "temp": 25, "pH": 7.2, "pe": 4, "units": "mmol/L",
-    "Ca": 10, "SO4": 8, "Na": 5, "Cl": 5, "HCO3": 0,
+    "temp": 25, "pH": 7.2, "pe": 4, "units": units,
+    "Ca": 1000, "SO4": 8000, "Na": 500000, "Cl": 500000, "HCO3": 0,
 }
 
 # Recharge water: Ca-HCO3 type, warmer
 recharge_water = {
-    "temp": 40, "pH": 8.0, "pe": 4, "units": "mmol/L",
-    "Ca": 2, "SO4": 0, "Na": 20, "Cl": 20, "HCO3": 15,
+    "temp": 40, "pH": 8.0, "pe": 4, "units": units,
+    "Ca": 2000, "SO4": 0, "Na": 200000, "Cl": 200000, "HCO3": 15,
 }
 
 # ---------------------------------------------------------------------------
@@ -98,9 +100,10 @@ task = MultiSolutionTask(
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    DB_PATH = Path(__file__).parent.parent / "phreeqc_database" / "pitzer.dat"
-    backend = create_phreeqcpy_instance(DB_PATH)
-
+    db = 'pitzer'
+    DB_PATH = Path(__file__).parent.parent / "databases" / f"{db}.dat"
+    assert DB_PATH.exists(), 'Cannot find database path'
+    backend = PhreeqpyBackend.create_from_database(DB_PATH)
     result = task.run(
         phreeqc=backend,
         id_="mix_50_50",

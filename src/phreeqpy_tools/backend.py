@@ -141,28 +141,28 @@ class PhreeqpyBackend:
         """
         return self._phreeqc.get_selected_output_array()
 
+    @staticmethod
+    def create_from_database(db_path: Path) -> PhreeqpyBackend:
+        """Create a ``PhreeqpyBackend`` with a loaded PHREEQC database.
 
-def create_phreeqcpy_instance(db_path: Path) -> PhreeqpyBackend:
-    """Create a ``PhreeqpyBackend`` with a loaded PHREEQC database.
+        Convenience factory that instantiates a raw IPhreeqc object, loads
+        the given database file, and wraps it in a ``PhreeqpyBackend``.
 
-    Convenience factory that instantiates a raw IPhreeqc object, loads
-    the given database file, and wraps it in a ``PhreeqpyBackend``.
+        Parameters
+        ----------
+        db_path : Path
+            Path to a valid PHREEQC database file (e.g. ``pitzer.dat``).
 
-    Parameters
-    ----------
-    db_path : Path
-        Path to a valid PHREEQC database file (e.g. ``pitzer.dat``).
+        Returns
+        -------
+        PhreeqpyBackend
+            Ready-to-use backend instance.
 
-    Returns
-    -------
-    PhreeqpyBackend
-        Ready-to-use backend instance.
-
-    Examples
-    --------
-    >>> backend = create_phreeqc_instance(Path("phreeqc_database/pitzer.dat"))
-    >>> backend.run("SOLUTION 1\\npH 7\\nEND")
-    """
-    phreeqc = phreeqc_mod.IPhreeqc()
-    phreeqc.load_database(str(db_path))
-    return PhreeqpyBackend(phreeqc)
+        Examples
+        --------
+        >>> backend = create_phreeqc_instance(Path("phreeqc_database/pitzer.dat"))
+        >>> backend.run("SOLUTION 1\\npH 7\\nEND")
+        """
+        phreeqc = phreeqc_mod.IPhreeqc()
+        phreeqc.load_database(str(db_path))
+        return PhreeqpyBackend(phreeqc)

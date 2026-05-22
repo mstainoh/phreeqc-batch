@@ -18,15 +18,11 @@ from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar, Optional
 
 from .backend import PhreeqcBackend
-from .composition import BaseComposition
 from .templates import PhreeqcTemplate
 
 logger = logging.getLogger(__name__)
 
 Id = TypeVar("Id")
-
-# Composition input type accepted by both task classes
-_Composition = Optional[dict[str, Any] | BaseComposition]
 
 
 # ---------------------------------------------------------------------------
@@ -114,10 +110,10 @@ class BaseTask(ABC):
         -------
         set of str
         """
-        return self.run_template.keys() - self._composition_keys()
+        return self.run_template.keys() - self.composition_keys()
 
     @abstractmethod
-    def _composition_keys(self) -> set[str]:
+    def composition_keys(self) -> set[str]:
         """Placeholder keys in ``run_template`` handled by this task's
         composition templates.
 
@@ -212,25 +208,23 @@ class SolutionTask(BaseTask):
 
     Examples
     --------
-    Density task:
-
     >>> task = SolutionTask(
     ...     task_name="density",
     ...     run_template=DEFAULT_SOLUTION_RUN_TEMPLATE,
     ...     composition_template=DEFAULT_COMPOSITION_TEMPLATE,
     ... )
     >>> result = task.run(phreeqc=backend, id_="PW04", composition=sample)
-
-    Task without composition template:
-
-    >>> task = SolutionTask(task_name="custom", run_template=my_template)
-    >>> result = task.run(phreeqc=backend, id_="test", param1=1.0)
     """
 
     composition_template: Optional[PhreeqcTemplate] = None
     composition_key: str = "composition_str"
 
     def __post_init__(self):
+        """Verify that run template and composition template are consistent.
+
+        If the run template requires a composition, a composition template
+        must be present, and vice versa.
+        """
         has_comp = self.composition_template is not None
         has_key = self.composition_key in self.run_template.keys()
         if has_comp and not has_key:
@@ -244,21 +238,21 @@ class SolutionTask(BaseTask):
                 f"but no composition_template was provided."
             )
 
-    def _composition_keys(self) -> set[str]:
+    def composition_keys(self) -> set[str]:
         return {self.composition_key} if self.composition_template is not None else set()
 
     def get_phreeqc_input(
         self,
-        composition: _Composition = None,
+        composition: Optional[dict[str, Any]] = None,
         **kwargs,
     ) -> str:
         """Build the PHREEQC input string without executing it.
 
         Parameters
         ----------
-        composition : dict or BaseComposition, optional
-            Composition values. Required when ``composition_template``
-            is set.
+        composition : dict, optional
+            Composition values keyed by template placeholder name.
+            Required when ``composition_template`` is set.
         **kwargs
             Extra values for any remaining ``run_template`` placeholders.
 
@@ -288,7 +282,7 @@ class SolutionTask(BaseTask):
         self,
         phreeqc: PhreeqcBackend,
         id_: Optional[Any] = None,
-        composition: _Composition = None,
+        composition: Optional[dict[str, Any]] = None,
         **kwargs,
     ) -> PhreeqcResult:
         """Execute the task for one sample.
@@ -299,7 +293,7 @@ class SolutionTask(BaseTask):
             Backend instance with a loaded database.
         id_ : any, optional
             Sample identifier propagated to the result.
-        composition : dict or BaseComposition, optional
+        composition : dict, optional
             Composition values. Required when ``composition_template``
             is set.
         **kwargs
@@ -343,20 +337,6 @@ class MultiSolutionTask(BaseTask):
 
     Examples
     --------
-    >>> MIX_TEMPLATE = PhreeqcTemplate(r\"\"\"
-    ... SOLUTION 1
-    ... {solution_1}
-    ... SOLUTION 2
-    ... {solution_2}
-    ... MIX 3
-    ...   1  {fraction_1}
-    ...   2  {fraction_2}
-    ... SELECTED_OUTPUT
-    ...   -reset false
-    ...   -saturation_indices Calcite Halite
-    ... END
-    ... \"\"\")
-    >>>
     >>> task = MultiSolutionTask(
     ...     task_name="mixing",
     ...     run_template=MIX_TEMPLATE,
@@ -368,10 +348,7 @@ class MultiSolutionTask(BaseTask):
     >>> result = task.run(
     ...     phreeqc=backend,
     ...     id_="mix_01",
-    ...     compositions={
-    ...         "solution_1": brine_a,
-    ...         "solution_2": meteoric_water,
-    ...     },
+    ...     compositions={"solution_1": brine_a, "solution_2": meteoric_water},
     ...     fraction_1=0.7,
     ...     fraction_2=0.3,
     ... )
@@ -387,22 +364,21 @@ class MultiSolutionTask(BaseTask):
                 f"{sorted(missing)}"
             )
 
-    def _composition_keys(self) -> set[str]:
+    def composition_keys(self) -> set[str]:
         return set(self.composition_templates)
 
     def get_phreeqc_input(
         self,
-        compositions: dict[str, _Composition],
+        compositions: dict[str, dict[str, Any]],
         **kwargs,
     ) -> str:
         """Build the PHREEQC input string without executing it.
 
         Parameters
         ----------
-        compositions : dict of str to composition
-            Mapping of placeholder key → composition dict or
-            ``BaseComposition``. Must contain one entry per key in
-            ``composition_templates``.
+        compositions : dict of str to dict
+            Mapping of placeholder key → composition dict. Must contain
+            one entry per key in ``composition_templates``.
         **kwargs
             Extra values for any remaining ``run_template`` placeholders
             (e.g. mixing fractions).
@@ -432,7 +408,7 @@ class MultiSolutionTask(BaseTask):
     def run(
         self,
         phreeqc: PhreeqcBackend,
-        compositions: dict[str, _Composition],
+        compositions: dict[str, dict[str, Any]],
         id_: Optional[Any] = None,
         **kwargs,
     ) -> PhreeqcResult:
@@ -442,9 +418,8 @@ class MultiSolutionTask(BaseTask):
         ----------
         phreeqc : PhreeqcBackend
             Backend instance with a loaded database.
-        compositions : dict of str to composition
-            Mapping of placeholder key → composition dict or
-            ``BaseComposition``.
+        compositions : dict of str to dict
+            Mapping of placeholder key → composition dict.
         id_ : any, optional
             Identifier propagated to the result.
         **kwargs
