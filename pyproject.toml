@@ -44,7 +44,7 @@ Issues = "https://github.com/mstainoh/phreeqpy-tools/issues"
 packages = ["src/phreeqpy_tools"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"phreeqc_database" = "phreeqpy_tools/phreeqc_database"
+"databases" = "phreeqpy_tools/databases"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
