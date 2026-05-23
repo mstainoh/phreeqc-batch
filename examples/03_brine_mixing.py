@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from phreeqpy_tools import (
+from phreeqc_batch import (
     PhreeqcTemplate,
     MultiSolutionTask,
     MultiSolutionBatchRunner,

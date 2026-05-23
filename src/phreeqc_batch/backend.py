@@ -158,11 +158,38 @@ class PhreeqpyBackend:
         PhreeqpyBackend
             Ready-to-use backend instance.
 
+        Raises
+        ------
+        FileNotFoundError
+            If ``db_path`` does not exist or is not a file.
+        RuntimeError
+            If IPhreeqc fails to load the database (e.g. malformed file,
+            wrong encoding, or unsupported database format). Includes the
+            IPhreeqc error string when available.
+
         Examples
         --------
         >>> backend = PhreeqpyBackend.create_from_database(Path("databases/pitzer.dat"))
         >>> backend.run("SOLUTION 1\\npH 7\\nEND")
         """
+        db_path = Path(db_path)
+        if not db_path.is_file():
+            raise FileNotFoundError(
+                f"PHREEQC database not found at: {db_path}"
+            )
+
         phreeqc = phreeqc_mod.IPhreeqc()
-        phreeqc.load_database(str(db_path))
+        try:
+            phreeqc.load_database(str(db_path))
+        except Exception as e:
+            error_str = ""
+            try:
+                error_str = phreeqc.get_error_string() or ""
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"Failed to load PHREEQC database from {db_path}:\n{e}\n"
+                f"--- error string ---\n{error_str}"
+            ) from e
+
         return PhreeqpyBackend(phreeqc)

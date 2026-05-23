@@ -5,7 +5,7 @@ run template, build a SolutionTask, and run it on one composition dict.
 """
 from pathlib import Path
 
-from phreeqpy_tools import (
+from phreeqc_batch import (
     PhreeqcTemplate,
     SolutionTask,
     PhreeqpyBackend,

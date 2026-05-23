@@ -3,9 +3,9 @@ import pandas as pd
 import pytest
 from unittest.mock import MagicMock
 
-from phreeqpy_tools.templates import PhreeqcTemplate
-from phreeqpy_tools.tasks import SolutionTask, MultiSolutionTask
-from phreeqpy_tools.runner import (
+from phreeqc_batch.templates import PhreeqcTemplate
+from phreeqc_batch.tasks import SolutionTask, MultiSolutionTask
+from phreeqc_batch.runner import (
     SolutionBatchRunner,
     MultiSolutionBatchRunner,
     results_to_scalar_df,
@@ -211,7 +211,7 @@ class TestMultiSolutionBatchRunner:
 
 class TestPostprocess:
     def test_results_to_scalar_df_from_data(self):
-        from phreeqpy_tools.tasks import PhreeqcResult
+        from phreeqc_batch.tasks import PhreeqcResult
         results = [
             PhreeqcResult(id="A", task_name="density", data=1.18),
             PhreeqcResult(id="B", task_name="density", data=1.22),
@@ -221,7 +221,7 @@ class TestPostprocess:
         assert out["density"].tolist() == [1.18, 1.22]
 
     def test_results_to_scalar_df_from_metadata(self):
-        from phreeqpy_tools.tasks import PhreeqcResult
+        from phreeqc_batch.tasks import PhreeqcResult
         results = [
             PhreeqcResult(id="A", task_name="t", data=None, metadata={"si": 0.3}),
         ]
@@ -229,7 +229,7 @@ class TestPostprocess:
         assert out["si"].tolist() == [0.3]
 
     def test_results_to_curve_dict(self):
-        from phreeqpy_tools.tasks import PhreeqcResult
+        from phreeqc_batch.tasks import PhreeqcResult
         df_a = pd.DataFrame({"pH": [7, 6]})
         df_b = pd.DataFrame({"pH": [8, 5]})
         results = [

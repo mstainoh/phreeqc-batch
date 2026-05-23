@@ -3,8 +3,8 @@ import pytest
 import pandas as pd
 from unittest.mock import MagicMock
 
-from phreeqpy_tools.templates import PhreeqcTemplate
-from phreeqpy_tools.tasks import PhreeqcResult, SolutionTask, MultiSolutionTask
+from phreeqc_batch.templates import PhreeqcTemplate
+from phreeqc_batch.tasks import PhreeqcResult, SolutionTask, MultiSolutionTask
 
 
 # ---------------------------------------------------------------------------

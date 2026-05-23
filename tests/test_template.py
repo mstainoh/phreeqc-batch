@@ -1,6 +1,6 @@
 """Tests for PhreeqcTemplate."""
 import pytest
-from phreeqpy_tools.templates import PhreeqcTemplate
+from phreeqc_batch.templates import PhreeqcTemplate
 
 
 SIMPLE = PhreeqcTemplate("pH {pH}\ntemp {temp}\n")

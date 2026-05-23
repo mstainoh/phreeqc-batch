@@ -8,9 +8,9 @@ is picklable.
 import pandas as pd
 import pytest
 
-from phreeqpy_tools.templates import PhreeqcTemplate
-from phreeqpy_tools.tasks import SolutionTask
-from phreeqpy_tools.runner import SolutionBatchRunner
+from phreeqc_batch.templates import PhreeqcTemplate
+from phreeqc_batch.tasks import SolutionTask
+from phreeqc_batch.runner import SolutionBatchRunner
 
 
 # ---------------------------------------------------------------------------
