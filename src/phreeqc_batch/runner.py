@@ -39,8 +39,6 @@ logger = logging.getLogger(__name__)
 # Worker-side helpers for parallel execution
 # ---------------------------------------------------------------------------
 
-# Per-process backend cache. Each worker process initializes its own backend
-# once on first use and reuses it for all subsequent jobs in that process.
 _WORKER_BACKEND: Optional[PhreeqcBackend] = None
 
 
@@ -84,8 +82,7 @@ class BaseBatchRunner(ABC):
         Keyword arguments forwarded to every ``task.run`` call. Use this
         for values that are constant across the entire batch (e.g. fixed
         reaction amounts, shared mixing fractions). Per-job values belong
-        in the input data: in ``MultiSolutionBatchRunner``, as extra keys
-        within each job dict.
+        in the input data.
     """
 
     task: BaseTask
@@ -94,9 +91,6 @@ class BaseBatchRunner(ABC):
     @abstractmethod
     def iter_jobs(self, data: Any) -> Iterable[tuple[Any, dict[str, Any]]]:
         """Yield ``(id_, run_kwargs)`` pairs from input data.
-
-        Each ``run_kwargs`` is merged with ``self.extra_keys`` and
-        passed to ``task.run`` as keyword arguments.
 
         Parameters
         ----------
@@ -109,17 +103,25 @@ class BaseBatchRunner(ABC):
         """
         ...
 
-    def run(self, data: Any, phreeqc: PhreeqcBackend) -> list[PhreeqcResult]:
-        """Execute the task over every job and collect results.
+    def run(
+        self,
+        data: Any,
+        phreeqc: PhreeqcBackend,
+        stop_on_error: bool = False,
+    ) -> list[PhreeqcResult]:
+        """Execute the task over every job sequentially and collect results.
 
-        A failed job is logged and skipped — the batch continues.
+        A failed job is logged and skipped unless ``stop_on_error`` is True.
 
         Parameters
         ----------
         data : any
             Subclass-specific input.
         phreeqc : PhreeqcBackend
-            Loaded backend instance.
+            Loaded backend instance shared across all jobs.
+        stop_on_error : bool, default False
+            If True, re-raises the first exception after logging it,
+            aborting the batch. If False, failed jobs are skipped.
 
         Returns
         -------
@@ -148,6 +150,8 @@ class BaseBatchRunner(ABC):
                     self.task.task_name, i + 1, n, id_,
                     exc_info=True,
                 )
+                if stop_on_error:
+                    raise
 
         logger.info(
             "[%s] batch complete: %d/%d succeeded",
@@ -161,6 +165,7 @@ class BaseBatchRunner(ABC):
         backend_factory: Callable[[], PhreeqcBackend],
         n_workers: Optional[int] = None,
         preserve_order: bool = True,
+        stop_on_error: bool = False,
     ) -> list[PhreeqcResult]:
         """Execute the task in parallel using a process pool.
 
@@ -172,24 +177,29 @@ class BaseBatchRunner(ABC):
         Parallel execution is only worth the overhead for batches of
         roughly 50+ jobs. For smaller batches, prefer ``run``.
 
-        A failed job is logged and skipped — the batch continues.
+        A failed job is logged and skipped unless ``stop_on_error`` is True.
+        Note: when ``stop_on_error=True``, already-submitted futures are not
+        cancelled — workers in flight complete normally, but no new jobs are
+        submitted and the exception is re-raised after draining results.
 
         Parameters
         ----------
         data : any
             Subclass-specific input (same as ``run``).
         backend_factory : callable
-            Zero-argument callable that returns a fresh ``PhreeqcBackend``.
+            Zero-argument callable returning a fresh ``PhreeqcBackend``.
             Each worker process calls it once. Must be picklable —
-            module-level functions and ``staticmethod`` work; lambdas
-            and closures over local state do not.
+            module-level functions and ``functools.partial`` work;
+            lambdas and closures over local state do not.
         n_workers : int, optional
             Number of worker processes. Defaults to ``os.cpu_count()``.
         preserve_order : bool, default True
             If True, results are returned in the same order as ``iter_jobs``
-            yields jobs (matches the sequential ``run``). If False, results
-            are returned as workers complete them, which can reveal
-            partial progress sooner but produces non-deterministic order.
+            yields jobs. If False, results are returned as workers complete
+            them (non-deterministic order, useful for progress monitoring).
+        stop_on_error : bool, default False
+            If True, re-raises the first exception encountered after logging
+            it. Already-running workers are not interrupted.
 
         Returns
         -------
@@ -197,15 +207,13 @@ class BaseBatchRunner(ABC):
 
         Examples
         --------
-        >>> from phreeqpy_tools import PhreeqpyBackend
-        >>> def make_backend():
-        ...     return PhreeqpyBackend.create_from_database(Path("pitzer.dat"))
-        >>> results = runner.run_parallel(df, backend_factory=make_backend, n_workers=4)
+        >>> from functools import partial
+        >>> factory = partial(PhreeqpyBackend.create_from_database, Path("pitzer.dat"))
+        >>> results = runner.run_parallel(df, backend_factory=factory, n_workers=4)
         """
         jobs = list(self.iter_jobs(data))
         n = len(jobs)
         n_workers = n_workers or os.cpu_count() or 1
-        results: list[PhreeqcResult] = []
 
         logger.info(
             "[%s] parallel batch: %d jobs on %d workers",
@@ -226,7 +234,6 @@ class BaseBatchRunner(ABC):
             }
 
             if preserve_order:
-                # collect into a slot list, then strip None for failures
                 slots: list[Optional[PhreeqcResult]] = [None] * n
                 for future, (i, id_) in futures.items():
                     try:
@@ -241,8 +248,11 @@ class BaseBatchRunner(ABC):
                             self.task.task_name, i + 1, n, id_,
                             exc_info=True,
                         )
+                        if stop_on_error:
+                            raise
                 results = [r for r in slots if r is not None]
             else:
+                results = []
                 for future in as_completed(futures):
                     i, id_ = futures[future]
                     try:
@@ -257,6 +267,8 @@ class BaseBatchRunner(ABC):
                             self.task.task_name, i + 1, n, id_,
                             exc_info=True,
                         )
+                        if stop_on_error:
+                            raise
 
         logger.info(
             "[%s] parallel batch complete: %d/%d succeeded",
@@ -290,11 +302,7 @@ class SolutionBatchRunner(BaseBatchRunner):
         Column to use as sample identifier. If ``None``, uses the
         DataFrame index.
     extra_keys : dict, optional
-        Keyword arguments forwarded to every ``task.run`` call. Use this
-        for values that are constant across the entire batch (e.g. fixed
-        reaction amounts, shared mixing fractions). Per-job values belong
-        in the input data: in ``SolutionBatchRunner``, as extra keys
-        within each job dict.
+        Keyword arguments forwarded to every ``task.run`` call.
 
     Examples
     --------
@@ -354,19 +362,14 @@ class MultiSolutionBatchRunner(BaseBatchRunner):
     - ``id`` (optional): identifier propagated to the result.
     - ``compositions``: dict of placeholder key → composition dict,
       one entry per key in ``task.composition_templates``.
-    - any extra keys: forwarded as ``**kwargs`` to ``task.run`` (e.g.
-      mixing fractions, reaction amounts).
+    - any extra keys: forwarded as ``**kwargs`` to ``task.run``.
 
     Parameters
     ----------
     task : MultiSolutionTask
         Task to execute on each job.
     extra_keys : dict, optional
-        Keyword arguments forwarded to every ``task.run`` call. Use this
-        for values that are constant across the entire batch (e.g. fixed
-        reaction amounts, shared mixing fractions). Per-job values belong
-        in the input data: in ``MultiSolutionBatchRunner``, as extra keys
-        within each job dict.
+        Keyword arguments forwarded to every ``task.run`` call.
 
     Examples
     --------
@@ -377,7 +380,6 @@ class MultiSolutionBatchRunner(BaseBatchRunner):
     ...         "fraction_1": 0.5,
     ...         "fraction_2": 0.5,
     ...     },
-    ...     ...
     ... ]
     >>> runner = MultiSolutionBatchRunner(task=mix_task)
     >>> results = runner.run(jobs, phreeqc=backend)
