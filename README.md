@@ -69,7 +69,7 @@ without stopping the batch, and support process-based parallelism via
 ## Installation
 
 ```bash
-pip install phreeqc-batch
+pip install git+https://github.com/mstainoh/phreeqc-batch.git
 ```
 
 Requires Python ≥ 3.10 and phreeqpy.
