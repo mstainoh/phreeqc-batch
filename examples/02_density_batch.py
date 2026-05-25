@@ -14,6 +14,7 @@ from phreeqc_batch import (
     SolutionSweepRunner,
     PhreeqpyBackend,
     results_to_curve_dict,
+    get_database_path
 )
 
 # ---------------------------------------------------------------------------
@@ -75,7 +76,7 @@ runner = SolutionSweepRunner(task=task, id_col="sample_id")
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    DB_PATH = Path(__file__).parent.parent / "databases" / "pitzer.dat"
+    DB_PATH = get_database_path('pitzer')
     backend = PhreeqpyBackend.create_from_database(DB_PATH)
 
     results = runner.run(df, phreeqc=backend)

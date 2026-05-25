@@ -32,6 +32,8 @@ Typical usage::
     results = runner.run(df, phreeqc=backend)
 """
 
+from pathlib import Path
+
 from .templates import (
     PhreeqcTemplate,
     DEFAULT_COMPOSITION_TEMPLATE,
@@ -54,17 +56,43 @@ from .runner import (
 )
 from .backend import PhreeqcBackend, PhreeqpyBackend
 
+# database helper
+from importlib.resources import files
+
+def get_database_path(name: str = "pitzer") -> str:
+    """Return absolute path to a bundled PHREEQC database.
+
+    Parameters
+    ----------
+    name : str
+        Database name without ``.dat`` extension. Default: ``"pitzer"``.
+
+    Returns
+    -------
+    Path
+        Absolute path to the database file, usable directly with
+        ``PhreeqpyBackend.create_from_database``.
+
+    Examples
+    --------
+    >>> backend = PhreeqpyBackend.create_from_database(get_database_path())
+    """
+    return str(files("phreeqc_batch") / "databases" / f"{name}.dat")
+
+
 __all__ = [
     # templates
     "PhreeqcTemplate",
     "DEFAULT_COMPOSITION_TEMPLATE",
     "DEFAULT_COMPOSITION_NO_CONDITIONS_TEMPLATE",
     "DEFAULT_SOLUTION_RUN_TEMPLATE",
+    
     # tasks
     "BaseTask",
     "PhreeqcResult",
     "SolutionTask",
     "MultiSolutionTask",
+    
     # runner
     "BaseSweepRunner",
     "FullSweepRunner",
@@ -72,7 +100,11 @@ __all__ = [
     "ParamSweepRunner",
     "results_to_scalar_df",
     "results_to_curve_dict",
+    
     # backend
     "PhreeqcBackend",
     "PhreeqpyBackend",
+    
+    # extra
+    "get_database_path"
 ]

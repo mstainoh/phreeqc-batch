@@ -17,6 +17,7 @@ from phreeqc_batch import (
     FullSweepRunner,
     ParamSweepRunner,
     PhreeqpyBackend,
+    get_database_path
 )
 
 # ---------------------------------------------------------------------------
@@ -113,7 +114,7 @@ runner = ParamSweepRunner(task=task, compositions=compositions)
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    DB_PATH = Path(__file__).parent.parent / "databases" / "pitzer.dat"
+    DB_PATH = get_database_path('pitzer')
     backend = PhreeqpyBackend.create_from_database(DB_PATH)
 
     results = runner.run(jobs, phreeqc=backend)
