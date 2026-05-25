@@ -463,7 +463,7 @@ class ParamSweepRunner(BaseSweepRunner):
         Check input argument consistency
         """
         # check that composition or compositions is provided, only one and not both
-        if (self.composition is not None) ^ (self.compositions is not None):
+        if (self.composition is None) == (self.compositions is None):
             raise ValueError(
                 "ParamSweepRunner requires exactly one of "
                 "'composition' (for SolutionTask) or "
