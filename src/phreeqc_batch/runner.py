@@ -1,24 +1,39 @@
 """Batch execution of PHREEQC tasks.
 
-Provides three batch runners and post-processing utilities:
+Provides three batch runners organized by axis of variation:
 
-- ``BaseBatchRunner``: abstract base — handles iteration, error logging,
-  and optional parallel execution.
-- ``SolutionBatchRunner``: runs a ``SolutionTask`` over a DataFrame or a
-  dict of compositions.
-- ``MultiSolutionBatchRunner``: runs a ``MultiSolutionTask`` over a list
-  of per-job dicts.
+- ``SolutionSweepRunner`` (Pattern A): compositions vary, parameters fixed.
+  Input is a DataFrame with one row per composition. Constant parameters
+  go in ``extra_keys``. Works only with ``SolutionTask``.
 
-Each runner exposes both ``run`` (sequential, shares one backend instance)
-and ``run_parallel`` (process-based parallelism, each worker process
-creates and caches its own backend).
+- ``ParamSweepRunner`` (Pattern B): compositions fixed, parameters vary.
+  Compositions are passed once to the runner; the input DataFrame holds
+  only the varying parameters. Works with both ``SolutionTask`` and
+  ``MultiSolutionTask``.
+
+- ``FullSweepRunner`` (Pattern C): everything varies. Input is a list of
+  per-job dicts. Works with both ``SolutionTask`` and ``MultiSolutionTask``.
+
+All three inherit from ``BaseSweepRunner``, which handles iteration, error
+logging, and optional process-based parallel execution. Each worker process
+creates and caches its own backend via a user-supplied factory.
+
+Choosing a runner:
+
+============  =============  =============  ====================
+Pattern       Compositions   Parameters     Runner
+============  =============  =============  ====================
+A             Vary           Fixed          SolutionSweepRunner
+B             Fixed          Vary           ParamSweepRunner
+C             Vary           Vary           FullSweepRunner
+============  =============  =============  ====================
 """
 from __future__ import annotations
 
 import logging
 import os
 from abc import ABC, abstractmethod
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Iterator, Optional, Union
 
@@ -63,11 +78,11 @@ def _run_one_job(
 
 
 # ---------------------------------------------------------------------------
-# BaseBatchRunner
+# BaseSweepRunner
 # ---------------------------------------------------------------------------
 
 @dataclass
-class BaseBatchRunner(ABC):
+class BaseSweepRunner(ABC):
     """Abstract base for batch runners.
 
     Provides the iteration loop, error logging, and result collection.
@@ -211,6 +226,8 @@ class BaseBatchRunner(ABC):
         >>> factory = partial(PhreeqpyBackend.create_from_database, Path("pitzer.dat"))
         >>> results = runner.run_parallel(df, backend_factory=factory, n_workers=4)
         """
+        from concurrent.futures import as_completed
+
         jobs = list(self.iter_jobs(data))
         n = len(jobs)
         n_workers = n_workers or os.cpu_count() or 1
@@ -278,16 +295,20 @@ class BaseBatchRunner(ABC):
 
 
 # ---------------------------------------------------------------------------
-# SolutionBatchRunner
+# Pattern A: SolutionSweepRunner — compositions vary, parameters fixed
 # ---------------------------------------------------------------------------
 
 @dataclass
-class SolutionBatchRunner(BaseBatchRunner):
-    """Batch runner for ``SolutionTask`` over a DataFrame or dict.
+class SolutionSweepRunner(BaseSweepRunner):
+    """Pattern A: vary compositions, fix parameters.
 
-    The DataFrame case is the common path for processing chemistry tables:
-    each row contributes one composition. The dict case is provided for
-    pre-built compositions keyed by id.
+    Iterates over a DataFrame (or dict) of compositions, applying the same
+    ``SolutionTask`` to each row. Any constant per-batch parameters go in
+    ``extra_keys``. This is the standard path for processing a chemistry
+    table where each row is one sample.
+
+    Restricted to ``SolutionTask``. For multi-solution patterns where all
+    compositions vary, use ``FullSweepRunner``.
 
     Parameters
     ----------
@@ -302,11 +323,12 @@ class SolutionBatchRunner(BaseBatchRunner):
         Column to use as sample identifier. If ``None``, uses the
         DataFrame index.
     extra_keys : dict, optional
-        Keyword arguments forwarded to every ``task.run`` call.
+        Keyword arguments forwarded to every ``task.run`` call. Use this
+        for values that are constant across the batch.
 
     Examples
     --------
-    >>> runner = SolutionBatchRunner(task=density_task, id_col="sample_id")
+    >>> runner = SolutionSweepRunner(task=density_task, id_col="sample_id")
     >>> results = runner.run(df, phreeqc=backend)
     """
 
@@ -340,8 +362,8 @@ class SolutionBatchRunner(BaseBatchRunner):
         """
         if isinstance(data, pd.DataFrame):
             cols = self._resolve_composition_cols()
-            for ix, row in data.iterrows():
-                id_ = row[self.id_col] if self.id_col else ix
+            for index, row in data.iterrows():
+                id_ = row[self.id_col] if self.id_col else index
                 composition = {c: row[c] for c in cols} if cols else {}
                 yield id_, {"composition": composition}
         else:
@@ -350,23 +372,192 @@ class SolutionBatchRunner(BaseBatchRunner):
 
 
 # ---------------------------------------------------------------------------
-# MultiSolutionBatchRunner
+# Pattern B: ParamSweepRunner — compositions fixed, parameters vary
 # ---------------------------------------------------------------------------
 
 @dataclass
-class MultiSolutionBatchRunner(BaseBatchRunner):
-    """Batch runner for ``MultiSolutionTask`` over a list of job dicts.
+class ParamSweepRunner(BaseSweepRunner):
+    """Pattern B: fix compositions, vary parameters.
 
-    Each job is a dict containing:
+    Compositions are passed once to the runner; the input DataFrame holds
+    only the per-job varying parameters (e.g. mixing fractions, target pH).
+    The composition payload travels with the runner instance, so in
+    parallel execution it is serialized once per worker instead of per job.
 
-    - ``id`` (optional): identifier propagated to the result.
-    - ``compositions``: dict of placeholder key → composition dict,
-      one entry per key in ``task.composition_templates``.
-    - any extra keys: forwarded as ``**kwargs`` to ``task.run``.
+    Works with both ``SolutionTask`` and ``MultiSolutionTask``:
+
+    - With ``SolutionTask``: pass a single composition dict via
+      ``composition``.
+    - With ``MultiSolutionTask``: pass a slot → composition mapping via
+      ``compositions``.
+
+    Exactly one of ``composition`` or ``compositions`` must be provided.
 
     Parameters
     ----------
-    task : MultiSolutionTask
+    task : SolutionTask or MultiSolutionTask
+        Task to execute on each parameter row.
+    composition : dict, optional
+        Single composition dict, used when task is a ``SolutionTask``.
+    compositions : dict of str to dict, optional
+        Mapping of slot key → composition dict, used when task is a
+        ``MultiSolutionTask``. Must cover every key in
+        ``task.composition_templates``.
+    param_cols : list of str, optional
+        DataFrame columns to forward as keyword arguments to ``task.run``.
+        If ``None``, all columns except ``id_col`` are forwarded.
+    id_col : str, optional
+        Column to use as job identifier. If ``None``, uses the DataFrame
+        index.
+    extra_keys : dict, optional
+        Keyword arguments forwarded to every ``task.run`` call.
+
+    Examples
+    --------
+    Brine mixing with fixed end-members, varying mixing fractions
+    (DataFrame input):
+
+    >>> runner = ParamSweepRunner(
+    ...     task=mix_task,
+    ...     compositions={"solution_1": formation_water, "solution_2": recharge_water},
+    ...     param_cols=["f1", "f2"],
+    ...     id_col="mix_id",
+    ... )
+    >>> params_df = pd.DataFrame({
+    ...     "mix_id": ["m10", "m50", "m90"],
+    ...     "f1": [0.1, 0.5, 0.9],
+    ...     "f2": [0.9, 0.5, 0.1],
+    ... })
+    >>> results = runner.run(params_df, phreeqc=backend)
+
+    Same problem, programmatically built list of dicts:
+
+    >>> jobs = [
+    ...     {"id": f"mix_{int(f*100):02d}", "f1": f, "f2": 1 - f}
+    ...     for f in [0.1, 0.5, 0.9]
+    ... ]
+    >>> runner = ParamSweepRunner(
+    ...     task=mix_task,
+    ...     compositions={"solution_1": formation_water, "solution_2": recharge_water},
+    ... )
+    >>> results = runner.run(jobs, phreeqc=backend)
+
+    Acidification curve on a single brine, varying target pH:
+
+    >>> runner = ParamSweepRunner(
+    ...     task=acid_task,
+    ...     composition=brine_sample,
+    ...     param_cols=["ph_target"],
+    ...     id_col="step",
+    ... )
+    """
+
+    task: BaseTask = None  # type: ignore[assignment]
+    composition: Optional[dict[str, Any]] = None
+    compositions: Optional[dict[str, dict[str, Any]]] = None
+    param_cols: Optional[list[str]] = None
+    id_col: Optional[str] = None
+
+    def __post_init__(self):
+        """
+        Check input argument consistency
+        """
+        # check that composition or compositions is provided, only one and not both
+        if (self.composition is not None) ^ (self.compositions is not None):
+            raise ValueError(
+                "ParamSweepRunner requires exactly one of "
+                "'composition' (for SolutionTask) or "
+                "'compositions' (for MultiSolutionTask)."
+            )
+        
+        # check that composition is provided for SolutionTask, compositions for MultisolutionTask
+        is_multi = isinstance(self.task, MultiSolutionTask)
+        if is_multi and self.composition is not None:
+            raise TypeError(
+                f"[{self.task.task_name}] MultiSolutionTask requires 'compositions' "
+                f"(dict of slot → composition), not 'composition'."
+            )
+        if not is_multi and self.compositions is not None:
+            raise TypeError(
+                f"[{self.task.task_name}] SolutionTask requires 'composition' "
+                f"(single composition dict), not 'compositions'."
+            )
+
+    def _build_run_kwargs(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Combine fixed compositions with varying parameters."""
+        run_kwargs: dict[str, Any] = dict(params)
+        if self.composition is not None:
+            run_kwargs["composition"] = self.composition
+        else:
+            run_kwargs["compositions"] = self.compositions
+        return run_kwargs
+
+    def iter_jobs(
+        self,
+        data: Union[pd.DataFrame, list[dict[str, Any]]],
+    ) -> Iterator[tuple[Any, dict[str, Any]]]:
+        """Yield ``(id_, run_kwargs)`` pairs from a parameter source.
+
+        Two input shapes are supported:
+
+        - ``pd.DataFrame``: one row per job. Columns named in ``param_cols``
+          (or all columns except ``id_col`` if ``param_cols`` is None)
+          become keyword arguments to ``task.run``. The id comes from
+          ``id_col`` if set, otherwise from the DataFrame index.
+
+        - ``list[dict]``: one dict per job. Each dict's keys (excluding
+          ``"id"``) become keyword arguments to ``task.run``. The id
+          comes from the ``"id"`` key if present, otherwise from the list
+          index. ``param_cols`` and ``id_col`` are ignored in this mode —
+          the dicts already define the parameter shape.
+
+        Parameters
+        ----------
+        data : pd.DataFrame or list of dict
+            Per-job parameters.
+
+        Yields
+        ------
+        tuple of (id, dict)
+        """
+        if isinstance(data, pd.DataFrame):
+            if self.param_cols is not None:
+                cols = list(self.param_cols)
+            else:
+                cols = [c for c in data.columns if c != self.id_col]
+            for ix, row in data.iterrows():
+                id_ = row[self.id_col] if self.id_col else ix
+                params = {c: row[c] for c in cols}
+                yield id_, self._build_run_kwargs(params)
+        else:
+            for i, job in enumerate(data):
+                id_ = job.get("id", i)
+                params = {k: v for k, v in job.items() if k != "id"}
+                yield id_, self._build_run_kwargs(params)
+
+
+# ---------------------------------------------------------------------------
+# Pattern C: FullSweepRunner — everything varies
+# ---------------------------------------------------------------------------
+
+@dataclass
+class FullSweepRunner(BaseSweepRunner):
+    """Pattern C: vary compositions and parameters per job.
+
+    Each job is a fully self-contained dict with its compositions and
+    parameters. Use this when no axis of the problem is fixed across jobs
+    — for example, screening a set of scenarios where both the brine
+    compositions and the mixing parameters change together.
+
+    Works with both ``SolutionTask`` and ``MultiSolutionTask``:
+
+    - With ``SolutionTask``: each job dict has ``composition``.
+    - With ``MultiSolutionTask``: each job dict has ``compositions``
+      (slot → composition mapping).
+
+    Parameters
+    ----------
+    task : SolutionTask or MultiSolutionTask
         Task to execute on each job.
     extra_keys : dict, optional
         Keyword arguments forwarded to every ``task.run`` call.
@@ -375,17 +566,31 @@ class MultiSolutionBatchRunner(BaseBatchRunner):
     --------
     >>> jobs = [
     ...     {
-    ...         "id": "mix_01",
-    ...         "compositions": {"solution_1": brine_a, "solution_2": water},
-    ...         "fraction_1": 0.5,
-    ...         "fraction_2": 0.5,
+    ...         "id": "scenario_A",
+    ...         "compositions": {"solution_1": brine_a1, "solution_2": water_a},
+    ...         "f1": 0.7, "f2": 0.3,
+    ...     },
+    ...     {
+    ...         "id": "scenario_B",
+    ...         "compositions": {"solution_1": brine_b1, "solution_2": water_b},
+    ...         "f1": 0.4, "f2": 0.6,
     ...     },
     ... ]
-    >>> runner = MultiSolutionBatchRunner(task=mix_task)
+    >>> runner = FullSweepRunner(task=mix_task)
     >>> results = runner.run(jobs, phreeqc=backend)
     """
 
-    task: MultiSolutionTask
+    task: BaseTask = None  # type: ignore[assignment]
+
+    def __post_init__(self):
+        if not isinstance(self.task, (SolutionTask, MultiSolutionTask)):
+            raise TypeError(
+                f"FullSweepRunner requires SolutionTask or MultiSolutionTask, "
+                f"got {type(self.task).__name__}."
+            )
+        self._composition_key = (
+            "compositions" if isinstance(self.task, MultiSolutionTask) else "composition"
+        )
 
     def iter_jobs(
         self,
@@ -393,11 +598,15 @@ class MultiSolutionBatchRunner(BaseBatchRunner):
     ) -> Iterable[tuple[Any, dict[str, Any]]]:
         """Yield ``(id_, run_kwargs)`` pairs from a list of job dicts.
 
+        Each job must contain the composition key appropriate to the task
+        (``composition`` for ``SolutionTask``, ``compositions`` for
+        ``MultiSolutionTask``). Optionally an ``id`` key; otherwise the
+        list index is used.
+
         Parameters
         ----------
         data : list of dict
-            Each dict must contain ``compositions`` and may contain ``id``
-            and additional keyword arguments for ``task.run``.
+            Per-job dicts.
 
         Yields
         ------
@@ -406,12 +615,14 @@ class MultiSolutionBatchRunner(BaseBatchRunner):
         Raises
         ------
         ValueError
-            If a job is missing the ``compositions`` key.
+            If a job is missing the required composition key.
         """
+        key = self._composition_key
         for i, job in enumerate(data):
-            if "compositions" not in job:
+            if key not in job:
                 raise ValueError(
-                    f"Job {i} missing required 'compositions' key."
+                    f"Job {i} missing required '{key}' key for "
+                    f"{type(self.task).__name__}."
                 )
             id_ = job.get("id", i)
             run_kwargs = {k: v for k, v in job.items() if k != "id"}

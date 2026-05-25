@@ -1,6 +1,6 @@
 """phreeqpy_tools — structured PHREEQC workflows over phreeqpy.
 
-Provides template-based input building, typed task execution, batch
+Provides template-based input building, typed task execution, Sweep
 processing over DataFrames or job lists, and a backend abstraction layer
 that decouples the workflow from any specific PHREEQC Python binding.
 
@@ -10,7 +10,9 @@ Typical usage::
     from phreeqpy_tools import (
         PhreeqcTemplate,
         SolutionTask,
-        SolutionBatchRunner,
+        FullSweepRunner,
+        SolutionSweepRunner,
+        ParamSweepRunner,
         PhreeqpyBackend,
         DEFAULT_COMPOSITION_TEMPLATE,
         DEFAULT_SOLUTION_RUN_TEMPLATE,
@@ -26,7 +28,7 @@ Typical usage::
         composition_template=DEFAULT_COMPOSITION_TEMPLATE,
     )
 
-    runner = SolutionBatchRunner(task=task, id_col="sample_id")
+    runner = SolutionSweepRunner(task=task, id_col="sample_id")
     results = runner.run(df, phreeqc=backend)
 """
 
@@ -43,9 +45,10 @@ from .tasks import (
     MultiSolutionTask,
 )
 from .runner import (
-    BaseBatchRunner,
-    SolutionBatchRunner,
-    MultiSolutionBatchRunner,
+    BaseSweepRunner,
+    FullSweepRunner,
+    SolutionSweepRunner,
+    ParamSweepRunner,
     results_to_scalar_df,
     results_to_curve_dict,
 )
@@ -63,9 +66,10 @@ __all__ = [
     "SolutionTask",
     "MultiSolutionTask",
     # runner
-    "BaseBatchRunner",
-    "SolutionBatchRunner",
-    "MultiSolutionBatchRunner",
+    "BaseSweepRunner",
+    "FullSweepRunner",
+    "SolutionSweepRunner",
+    "ParamSweepRunner",
     "results_to_scalar_df",
     "results_to_curve_dict",
     # backend
