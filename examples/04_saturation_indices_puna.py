@@ -17,7 +17,7 @@ import pandas as pd
 from phreeqc_batch import (
     PhreeqcTemplate,
     SolutionTask,
-    SolutionBatchRunner,
+    SolutionSweepRunner,
     PhreeqpyBackend,
     results_to_curve_dict,
 )
@@ -35,9 +35,9 @@ Argentina	Pastos Grandes	178700	26080	n.d.	118200	4730	740	2980	440	2220
 Argentina	Centenario	192700	19980	n.d.	112300	8170	320	7550	1020	3765
 Argentina	Rio Grande	148900	10610	n.d.	92400	3710	800	2600	420	1673
 Argentina	Arizaro	190700	8260	n.d.	119500	160	760	1840	160	138
-Chile	Atacama	183100	16140	560	103000	12900	520	6130	760	1705
-Chile	Atacama	182800	25500	220	98000	19500	300	8500	1200	1673
-Chile	Atacama	189500	15900	230	91100	23600	450	9650	1570	1416
+Chile	Atacama1	183100	16140	560	103000	12900	520	6130	760	1705
+Chile	Atacama2	182800	25500	220	98000	19500	300	8500	1200	1673
+Chile	Atacama3	189500	15900	230	91100	23600	450	9650	1570	1416
 Chile	Surire	131380	11430	n.d.	73200	13200	890	3830	540	3700
 Chile	Azufrear	172130	87990	0	60000	14960	88	48640	86	740
 Chile	Laco	109630	15360	620	62200	4800	820	6251	101	1078
@@ -62,13 +62,6 @@ df = df.replace("n.d.", 0)
 ion_cols = ["Cl", "SO4", "HCO3", "Na", "K", "Ca", "Mg", "Li", "B"]
 df[ion_cols] = df[ion_cols].astype(float)
 
-# Disambiguate repeated salar names (Atacama appears three times).
-df["sample_id"] = df.groupby("Salar").cumcount().add(1).astype(str)
-df["sample_id"] = df.apply(
-    lambda r: f"{r['Salar']}_{r['sample_id']}" if (df["Salar"] == r["Salar"]).sum() > 1
-    else r["Salar"],
-    axis=1,
-)
 
 # ---------------------------------------------------------------------------
 # Templates
@@ -122,7 +115,7 @@ task = SolutionTask(
     composition_template=comp_template,
 )
 
-runner = SolutionBatchRunner(task=task, id_col="sample_id")
+runner = SolutionSweepRunner(task=task, id_col="Salar")
 
 # ---------------------------------------------------------------------------
 # Run
@@ -140,6 +133,5 @@ if __name__ == "__main__":
         sample_id: curve.iloc[0].to_dict()
         for sample_id, curve in curves.items()
     }).T
-    si_table.index.name = "sample_id"
 
     print(si_table.round(2).to_string())

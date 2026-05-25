@@ -11,7 +11,7 @@ import pandas as pd
 from phreeqc_batch import (
     PhreeqcTemplate,
     SolutionTask,
-    SolutionBatchRunner,
+    SolutionSweepRunner,
     PhreeqpyBackend,
     results_to_curve_dict,
 )
@@ -50,12 +50,12 @@ END
 # Note: 'notes' is irrelevant to PHREEQC — the runner ignores it
 # because it's not in COMP_TEMPLATE.keys().
 df = pd.DataFrame([
-    {"sample_id": "PW01", "units": "mmol/L", "temp": 25, "pH": 7.0,
-     "Na": 100, "Cl": 100, "Ca": 2, "Mg": 1, "notes": "shallow well"},
-    {"sample_id": "PW02", "units": "mmol/L", "temp": 25, "pH": 6.8,
+    {"sample_id": "a1", "units": "mmol/L", "temp": 25, "pH": 7.0,
+     "Na": 100, "Cl": 100, "Ca": 2, "Mg": 1, "notes": "shallow"},
+    {"sample_id": "a2", "units": "mmol/L", "temp": 25, "pH": 6.8,
      "Na": 200, "Cl": 210, "Ca": 5, "Mg": 3, "notes": "mid depth"},
-    {"sample_id": "PW03", "units": "mmol/L", "temp": 25, "pH": 7.2,
-     "Na": 500, "Cl": 510, "Ca": 10, "Mg": 5, "notes": "deep brine"},
+    {"sample_id": "a3", "units": "mmol/L", "temp": 25, "pH": 7.2,
+     "Na": 5000, "Cl": 5100, "Ca": 10, "Mg": 5, "notes": "deep"},
 ])
 
 # ---------------------------------------------------------------------------
@@ -68,7 +68,7 @@ task = SolutionTask(
     composition_template=COMP_TEMPLATE,
 )
 
-runner = SolutionBatchRunner(task=task, id_col="sample_id")
+runner = SolutionSweepRunner(task=task, id_col="sample_id")
 
 # ---------------------------------------------------------------------------
 # Run

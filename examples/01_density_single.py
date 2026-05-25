@@ -21,7 +21,7 @@ COMP_TEMPLATE = PhreeqcTemplate("""\
     temp    {temp}
     pH      {pH}
     Na      {Na}
-    Cl      {Cl}
+    Cl      {Cl} charge
 """)
 
 # Run block: PHREEQC computes solution properties; we punch density (RHO).
@@ -57,11 +57,11 @@ if __name__ == "__main__":
     backend = PhreeqpyBackend.create_from_database(DB_PATH)
 
     sample = {
-        "units": "mmol/L",
+        "units": "mg/L",
         "temp": 25,
         "pH": 7.0,
-        "Na": 100,
-        "Cl": 100,
+        "Na": 100000,
+        "Cl": 100000,
     }
 
     result = task.run(phreeqc=backend, id_="sample_01", composition=sample)

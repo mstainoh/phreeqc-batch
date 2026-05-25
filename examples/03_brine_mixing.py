@@ -14,7 +14,8 @@ import pandas as pd
 from phreeqc_batch import (
     PhreeqcTemplate,
     MultiSolutionTask,
-    MultiSolutionBatchRunner,
+    FullSweepRunner,
+    ParamSweepRunner,
     PhreeqpyBackend,
 )
 
@@ -40,22 +41,25 @@ SOLUTION 1
 SOLUTION 2
 {solution_2}
 
-MIX 1
-    1   {f1}
-    2   {f2}
-
 EQUILIBRIUM_PHASES 1
     Calcite     0   0
     Gypsum      0   0
     Anhydrite   0   0
-    Dolomite    0   0
+
+MIX 1
+    1   {f1}
+    2   {f2}
+
+USER_PUNCH
+    -headings density
+    10 PUNCH RHO
 
 SELECTED_OUTPUT
     -reset                  false
     -pH                     true
     -temperature            true
-    -saturation_indices     Calcite Gypsum Anhydrite Dolomite
-    -equilibrium_phases     Calcite Gypsum Anhydrite Dolomite
+    -saturation_indices     Calcite Gypsum Anhydrite
+    -user_punch             true
 END
 """)
 
@@ -63,16 +67,20 @@ END
 # Compositions
 # ---------------------------------------------------------------------------
 
-formation_water = {
-    "units": "mmol/L", "temp": 25, "pH": 7.2, "pe": 4,
-    "Ca": 10, "Na": 5, "Cl": 5, "SO4": 8, "HCO3": 0,
-}
-
 recharge_water = {
-    "units": "mmol/L", "temp": 40, "pH": 8.0, "pe": 4,
-    "Ca": 2, "Na": 20, "Cl": 20, "SO4": 0, "HCO3": 15,
+    "units": "mmol/L", "temp": 25, "pH": 7.2, "pe": 4,
+    "Ca": 2, "Na": 5, "Cl": 5, "SO4": 2, "HCO3": 0,
 }
 
+formation_water = {
+    "units": "mmol/L", "temp": 10, "pH": 8.0, "pe": 4,
+    "Ca": 40, "Na": 350, "Cl": 335, "SO4": 40, "HCO3": 15,
+}
+
+compositions = {
+            "solution_1": formation_water,
+            "solution_2": recharge_water,
+        }
 # ---------------------------------------------------------------------------
 # Task
 # ---------------------------------------------------------------------------
@@ -94,15 +102,11 @@ jobs = []
 for f1 in [0.1, 0.3, 0.5, 0.7, 0.9]:
     jobs.append({
         "id": f"mix_{int(f1*100):02d}_{int((1-f1)*100):02d}",
-        "compositions": {
-            "solution_1": formation_water,
-            "solution_2": recharge_water,
-        },
         "f1": f1,
         "f2": 1 - f1,
     })
 
-runner = MultiSolutionBatchRunner(task=task)
+runner = ParamSweepRunner(task=task, compositions=compositions)
 
 # ---------------------------------------------------------------------------
 # Run
@@ -117,10 +121,8 @@ if __name__ == "__main__":
     # Collect saturation indices across all mixing ratios.
     rows = []
     for r in results:
-        # Each result.data has one row per simulation step;
-        # for MIX + EQUILIBRIUM_PHASES, this is typically one row.
         row = {"id": r.id}
-        row.update(r.data.iloc[0].to_dict())
+        row.update(r.data.iloc[-1].to_dict())
         rows.append(row)
 
     summary = pd.DataFrame(rows)
