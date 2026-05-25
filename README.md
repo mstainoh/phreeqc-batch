@@ -58,9 +58,9 @@ Pick by what changes across jobs:
 
 | Pattern | Compositions | Parameters    | Runner                |
 |---------|--------------|---------------|-----------------------|
-| A       | Vary         | Fixed         | `SolutionSweepRunner` |
-| B       | Fixed        | Vary          | `ParamSweepRunner`    |
-| C       | Vary         | Vary          | `FullSweepRunner`     |
+| A       | Vary         | Fixed         | `SolutionBatchRunner` |
+| B       | Fixed        | Vary          | `ParamBatchRunner`    |
+| C       | Vary         | Vary          | `FullBatchRunner`     |
 
 All three share the same `run()` / `run_parallel()` API, log failures
 without stopping the batch, and support process-based parallelism via
@@ -81,7 +81,7 @@ import pandas as pd
 from phreeqc_batch import (
     PhreeqcTemplate,
     SolutionTask,
-    SolutionSweepRunner,
+    SolutionBatchRunner,
     PhreeqpyBackend,
     get_database_path,
 )
@@ -138,14 +138,14 @@ df = pd.DataFrame([
      "Cl": 190500, "SO4": 15990, "Li": 350},
 ])
 
-runner = SolutionSweepRunner(task=task, id_col="salar")
+runner = SolutionBatchRunner(task=task, id_col="salar")
 results = runner.run(df, phreeqc=backend)
 
 for r in results:
     print(f"{r.id:15s}  {r.data.iloc[0].to_dict()}")
 ```
 
-`SolutionSweepRunner` pulls only the columns the composition template
+`SolutionBatchRunner` pulls only the columns the composition template
 needs, so extra DataFrame columns (notes, dates, lab IDs) are silently
 ignored.
 
@@ -161,7 +161,7 @@ and `results_to_curve_dict`.
 Two fixed brines, sweep over mixing fractions:
 
 ```python
-from phreeqc_batch import MultiSolutionTask, ParamSweepRunner
+from phreeqc_batch import MultiSolutionTask, ParamBatchRunner
 
 mix_template = PhreeqcTemplate(r"""
 SOLUTION 1
@@ -194,7 +194,7 @@ task = MultiSolutionTask(
 )
 
 # Compositions live on the runner — they don't repeat in each job.
-runner = ParamSweepRunner(
+runner = ParamBatchRunner(
     task=task,
     compositions={"solution_1": brine_a, "solution_2": recharge_water},
 )
@@ -207,14 +207,14 @@ jobs = [
 results = runner.run(jobs, phreeqc=backend)
 ```
 
-`ParamSweepRunner` also accepts a DataFrame of parameters with `param_cols`
-and `id_col` (same conventions as `SolutionSweepRunner`).
+`ParamBatchRunner` also accepts a DataFrame of parameters with `param_cols`
+and `id_col` (same conventions as `SolutionBatchRunner`).
 
 For a single composition with `SolutionTask`, use `composition=...` instead
 of `compositions=...`:
 
 ```python
-runner = ParamSweepRunner(
+runner = ParamBatchRunner(
     task=acid_task,
     composition=brine_sample,
     param_cols=["ph_target"],
@@ -227,7 +227,7 @@ runner = ParamSweepRunner(
 Each job carries its own composition(s) and parameters:
 
 ```python
-from phreeqc_batch import FullSweepRunner
+from phreeqc_batch import FullBatchRunner
 
 jobs = [
     {
@@ -241,7 +241,7 @@ jobs = [
         "f1": 0.4, "f2": 0.6,
     },
 ]
-runner = FullSweepRunner(task=mix_task)
+runner = FullBatchRunner(task=mix_task)
 results = runner.run(jobs, phreeqc=backend)
 ```
 
