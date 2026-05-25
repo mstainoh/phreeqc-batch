@@ -111,6 +111,17 @@ class PhreeqcTemplate:
 
         return self.template.format(**{k: kwargs[k] for k in self.keys()})
 
+    def format(self, **kwargs):
+        """Strict alias of ``fill(ignore_extra=False)``.
+
+        Matches Python's ``str.format`` semantics: raises ``ValueError`` if
+        any kwarg is not a placeholder in the template. Use ``fill`` for
+        permissive behavior (the default).
+
+        See ``PhreeqcTemplate.fill`` for full parameter documentation.
+        """
+        return self.fill(ignore_extra=False, **kwargs)
+
     def __repr__(self) -> str:
         return self.template
 

@@ -14,7 +14,7 @@ import logging
 import pandas as pd
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Generic, TypeVar, Optional
+from typing import Any, Generic, TypeVar, Optional, Union
 
 from .backend import PhreeqcBackend
 from .templates import PhreeqcTemplate
@@ -172,7 +172,57 @@ class BaseTask(ABC):
             data=_selected_output_to_df(phreeqc),
         )
 
+    @staticmethod
+    def fill_template(
+        template: Union[str, "PhreeqcTemplate"],
+        ignore_extra: bool = True,
+        **kwargs,
+    ) -> str:
+        """Fill a template with the provided values, accepting str or PhreeqcTemplate.
 
+        Convenience helper that normalizes both inputs to ``PhreeqcTemplate``
+        semantics: raw strings are wrapped on the fly, so the behavior with
+        respect to missing keys, extra keys, and ``ignore_extra`` matches
+        ``PhreeqcTemplate.fill`` regardless of input type.
+
+        Parameters
+        ----------
+        template : str or PhreeqcTemplate
+            Template to fill. A raw ``str`` is wrapped in a ``PhreeqcTemplate``
+            before filling, so both inputs behave identically.
+        ignore_extra : bool, default True
+            If True, extra ``kwargs`` not required by the template are silently
+            ignored. If False, raises ``ValueError`` on any extra key.
+        **kwargs
+            Values for each placeholder in the template.
+
+        Returns
+        -------
+        str
+            The formatted output.
+
+        Raises
+        ------
+        KeyError
+            If any placeholder required by the template is absent from
+            ``kwargs``.
+        ValueError
+            If extra keys are passed and ``ignore_extra`` is False.
+
+        Examples
+        --------
+        >>> BaseTask.fill_template("Na {Na}", Na=100)
+        'Na 100'
+        >>> BaseTask.fill_template(PhreeqcTemplate("Na {Na}"), Na=100, Cl=200)
+        'Na 100'
+        >>> BaseTask.fill_template("Na {Na}", ignore_extra=False, Na=100, Cl=200)
+        Traceback (most recent call last):
+            ...
+        ValueError: Unrecognized keys: ['Cl']
+        """
+        if isinstance(template, str):
+            template = PhreeqcTemplate(template)
+        return template.fill(ignore_extra=ignore_extra, **kwargs)
 # ---------------------------------------------------------------------------
 # SolutionTask — single composition
 # ---------------------------------------------------------------------------
@@ -274,8 +324,8 @@ class SolutionTask(BaseTask):
                     f"[{self.task_name}] composition_template provided but no "
                     f"composition supplied."
                 )
-            fill_dict[self.composition_key] = self.composition_template.fill(**composition)
-        return self.run_template.fill(**fill_dict)
+            fill_dict[self.composition_key] = self.fill_template(self.composition_template, **composition)
+        return self.fill_template(self.run_template, **fill_dict)
 
     def run(
         self,
@@ -401,8 +451,8 @@ class MultiSolutionTask(BaseTask):
                 raise ValueError(
                     f"[{self.task_name}] missing composition for key '{key}'."
                 )
-            fill_dict[key] = template.fill(**composition)
-        return self.run_template.fill(**fill_dict)
+            fill_dict[key] = self.fill_template(template, **composition)
+        return self.fill_template(self.run_template, **fill_dict)
 
     def run(
         self,
