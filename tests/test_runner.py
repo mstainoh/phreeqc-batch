@@ -6,8 +6,8 @@ from unittest.mock import MagicMock
 from phreeqc_batch.templates import PhreeqcTemplate
 from phreeqc_batch.tasks import SolutionTask, MultiSolutionTask
 from phreeqc_batch.runner import (
-    SolutionSweepRunner,
-    FullSweepRunner,
+    SolutionBatchRunner,
+    FullBatchRunner,
     results_to_scalar_df,
     results_to_curve_dict,
 )
@@ -61,7 +61,7 @@ class TestSolutionBatchRunnerDataFrame:
             "temp": [25.0, 30.0],
         })
         backend = _make_backend()
-        runner = SolutionSweepRunner(task=_solution_task(), id_col="sample_id")
+        runner = SolutionBatchRunner(task=_solution_task(), id_col="sample_id")
         results = runner.run(df, phreeqc=backend)
 
         assert len(results) == 2
@@ -71,7 +71,7 @@ class TestSolutionBatchRunnerDataFrame:
     def test_uses_index_when_no_id_col(self):
         df = pd.DataFrame({"pH": [7.0, 7.5], "temp": [25.0, 30.0]}, index=["x", "y"])
         backend = _make_backend()
-        runner = SolutionSweepRunner(task=_solution_task())
+        runner = SolutionBatchRunner(task=_solution_task())
         results = runner.run(df, phreeqc=backend)
 
         assert [r.id for r in results] == ["x", "y"]
@@ -85,7 +85,7 @@ class TestSolutionBatchRunnerDataFrame:
             "notes": ["this column is irrelevant"],
         })
         backend = _make_backend()
-        runner = SolutionSweepRunner(task=_solution_task(), id_col="sample_id")
+        runner = SolutionBatchRunner(task=_solution_task(), id_col="sample_id")
         results = runner.run(df, phreeqc=backend)
 
         assert len(results) == 1
@@ -99,7 +99,7 @@ class TestSolutionBatchRunnerDataFrame:
         backend = _make_backend()
         # second call raises, others succeed
         backend.run.side_effect = [None, RuntimeError("boom"), None]
-        runner = SolutionSweepRunner(task=_solution_task(), id_col="sample_id")
+        runner = SolutionBatchRunner(task=_solution_task(), id_col="sample_id")
         results = runner.run(df, phreeqc=backend)
 
         assert len(results) == 2
@@ -117,7 +117,7 @@ class TestSolutionBatchRunnerDict:
             "B": {"pH": 7.5, "temp": 30.0},
         }
         backend = _make_backend()
-        runner = SolutionSweepRunner(task=_solution_task())
+        runner = SolutionBatchRunner(task=_solution_task())
         results = runner.run(compositions, phreeqc=backend)
 
         assert len(results) == 2
@@ -141,7 +141,7 @@ class TestSolutionBatchRunnerExtraKeys:
         )
         df = pd.DataFrame({"pH": [7.0], "temp": [25.0]})
         backend = _make_backend()
-        runner = SolutionSweepRunner(task=task, extra_keys={"amount": 0.1})
+        runner = SolutionBatchRunner(task=task, extra_keys={"amount": 0.1})
         results = runner.run(df, phreeqc=backend)
 
         assert len(results) == 1
@@ -175,7 +175,7 @@ class TestMultiSolutionBatchRunner:
             },
         ]
         backend = _make_backend()
-        runner = FullSweepRunner(task=_multi_task())
+        runner = FullBatchRunner(task=_multi_task())
         results = runner.run(jobs, phreeqc=backend)
 
         assert len(results) == 2
@@ -192,7 +192,7 @@ class TestMultiSolutionBatchRunner:
             },
         ]
         backend = _make_backend()
-        runner = FullSweepRunner(task=_multi_task())
+        runner = FullBatchRunner(task=_multi_task())
         results = runner.run(jobs, phreeqc=backend)
 
         assert results[0].id == 0
@@ -200,7 +200,7 @@ class TestMultiSolutionBatchRunner:
     def test_raises_if_compositions_missing_in_job(self):
         jobs = [{"id": "bad", "f1": 0.5, "f2": 0.5}]  # no compositions
         backend = _make_backend()
-        runner = FullSweepRunner(task=_multi_task())
+        runner = FullBatchRunner(task=_multi_task())
         with pytest.raises(ValueError, match="missing required 'compositions'"):
             runner.run(jobs, phreeqc=backend)
 

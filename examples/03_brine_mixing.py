@@ -14,8 +14,8 @@ import pandas as pd
 from phreeqc_batch import (
     PhreeqcTemplate,
     MultiSolutionTask,
-    FullSweepRunner,
-    ParamSweepRunner,
+    FullBatchRunner,
+    ParamBatchRunner,
     PhreeqpyBackend,
     get_database_path
 )
@@ -107,7 +107,7 @@ for f1 in [0.1, 0.3, 0.5, 0.7, 0.9]:
         "f2": 1 - f1,
     })
 
-runner = ParamSweepRunner(task=task, compositions=compositions)
+runner = ParamBatchRunner(task=task, compositions=compositions)
 
 # ---------------------------------------------------------------------------
 # Run

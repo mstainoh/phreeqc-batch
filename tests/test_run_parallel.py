@@ -10,7 +10,7 @@ import pytest
 
 from phreeqc_batch.templates import PhreeqcTemplate
 from phreeqc_batch.tasks import SolutionTask
-from phreeqc_batch.runner import SolutionSweepRunner
+from phreeqc_batch.runner import SolutionBatchRunner
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +62,7 @@ class TestSolutionBatchRunnerParallel:
             "pH": [7.0 + i * 0.1 for i in range(6)],
             "temp": [25.0] * 6,
         })
-        runner = SolutionSweepRunner(task=_solution_task(), id_col="sample_id")
+        runner = SolutionBatchRunner(task=_solution_task(), id_col="sample_id")
         results = runner.run_parallel(
             df,
             backend_factory=make_fake_backend,
@@ -76,7 +76,7 @@ class TestSolutionBatchRunnerParallel:
             "pH": [7.0 + i * 0.1 for i in range(6)],
             "temp": [25.0] * 6,
         })
-        runner = SolutionSweepRunner(task=_solution_task(), id_col="sample_id")
+        runner = SolutionBatchRunner(task=_solution_task(), id_col="sample_id")
         results = runner.run_parallel(
             df,
             backend_factory=make_fake_backend,
@@ -91,7 +91,7 @@ class TestSolutionBatchRunnerParallel:
             "pH": [7.0 + i * 0.1 for i in range(6)],
             "temp": [25.0] * 6,
         })
-        runner = SolutionSweepRunner(task=_solution_task(), id_col="sample_id")
+        runner = SolutionBatchRunner(task=_solution_task(), id_col="sample_id")
         results = runner.run_parallel(
             df,
             backend_factory=make_fake_backend,

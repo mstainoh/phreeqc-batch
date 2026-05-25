@@ -17,7 +17,7 @@ import pandas as pd
 from phreeqc_batch import (
     PhreeqcTemplate,
     SolutionTask,
-    SolutionSweepRunner,
+    SolutionBatchRunner,
     PhreeqpyBackend,
     results_to_curve_dict,
     get_database_path
@@ -116,7 +116,7 @@ task = SolutionTask(
     composition_template=comp_template,
 )
 
-runner = SolutionSweepRunner(task=task, id_col="Salar")
+runner = SolutionBatchRunner(task=task, id_col="Salar")
 
 # ---------------------------------------------------------------------------
 # Run

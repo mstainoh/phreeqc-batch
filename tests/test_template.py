@@ -28,9 +28,9 @@ class TestPhreeqcTemplateFill:
         with pytest.raises(KeyError, match="Missing template keys"):
             SIMPLE.fill(pH=7.2)
 
-    def test_raises_on_extra_keys_by_default(self):
+    def test_raises_on_extra_keys(self):
         with pytest.raises(ValueError, match="Unrecognized keys"):
-            SIMPLE.fill(pH=7.2, temp=25.0, Na=100.0)
+            SIMPLE.fill(pH=7.2, temp=25.0, Na=100.0, ignore_extra=False)
 
     def test_ignore_extra_keys(self):
         result = SIMPLE.fill(pH=7.2, temp=25.0, Na=100.0, ignore_extra=True)
