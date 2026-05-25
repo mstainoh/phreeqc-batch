@@ -1,18 +1,18 @@
-"""phreeqpy_tools — structured PHREEQC workflows over phreeqpy.
+"""phreeqc_batch — structured PHREEQC workflows.
 
-Provides template-based input building, typed task execution, Sweep
+Provides template-based input building, typed task execution, batch
 processing over DataFrames or job lists, and a backend abstraction layer
 that decouples the workflow from any specific PHREEQC Python binding.
 
 Typical usage::
 
     from pathlib import Path
-    from phreeqpy_tools import (
+    from phreeqc_batch import (
         PhreeqcTemplate,
         SolutionTask,
-        FullSweepRunner,
-        SolutionSweepRunner,
-        ParamSweepRunner,
+        FullBatchRunner,
+        SolutionBatchRunner,
+        ParamBatchRunner,
         PhreeqpyBackend,
         DEFAULT_COMPOSITION_TEMPLATE,
         DEFAULT_SOLUTION_RUN_TEMPLATE,
@@ -28,11 +28,11 @@ Typical usage::
         composition_template=DEFAULT_COMPOSITION_TEMPLATE,
     )
 
-    runner = SolutionSweepRunner(task=task, id_col="sample_id")
+    runner = SolutionBatchRunner(task=task, id_col="sample_id")
     results = runner.run(df, phreeqc=backend)
 """
 
-from pathlib import Path
+from importlib.resources import files
 
 from .templates import (
     PhreeqcTemplate,
@@ -47,18 +47,16 @@ from .tasks import (
     MultiSolutionTask,
 )
 from .runner import (
-    BaseSweepRunner,
-    FullSweepRunner,
-    SolutionSweepRunner,
-    ParamSweepRunner,
+    BaseBatchRunner,
+    FullBatchRunner,
+    SolutionBatchRunner,
+    ParamBatchRunner,
     results_to_scalar_df,
     results_to_curve_dict,
 )
 from .backend import PhreeqcBackend, PhreeqpyBackend
 
 # database helper
-from importlib.resources import files
-
 def get_database_path(name: str = "pitzer") -> str:
     """Return absolute path to a bundled PHREEQC database.
 
@@ -69,7 +67,7 @@ def get_database_path(name: str = "pitzer") -> str:
 
     Returns
     -------
-    Path
+    str
         Absolute path to the database file, usable directly with
         ``PhreeqpyBackend.create_from_database``.
 
@@ -94,10 +92,10 @@ __all__ = [
     "MultiSolutionTask",
     
     # runner
-    "BaseSweepRunner",
-    "FullSweepRunner",
-    "SolutionSweepRunner",
-    "ParamSweepRunner",
+    "BaseBatchRunner",
+    "FullBatchRunner",
+    "SolutionBatchRunner",
+    "ParamBatchRunner",
     "results_to_scalar_df",
     "results_to_curve_dict",
     

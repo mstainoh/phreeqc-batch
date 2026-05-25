@@ -13,7 +13,7 @@ To implement a custom backend, subclass or duck-type ``PhreeqcBackend``::
             ...
 
 Any object satisfying the Protocol can be passed to ``BaseTask.run`` subclasses
-and ``BaseBatchRunner.run`` subclasses in place of the default backend.
+and runners ``.run`` method in place of the default backend.
 """
 from __future__ import annotations
 

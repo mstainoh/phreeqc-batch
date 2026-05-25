@@ -2,19 +2,19 @@
 
 Provides three batch runners organized by axis of variation:
 
-- ``SolutionSweepRunner`` (Pattern A): compositions vary, parameters fixed.
+- ``SolutionBatchRunner`` (Pattern A): compositions vary, parameters fixed.
   Input is a DataFrame with one row per composition. Constant parameters
   go in ``extra_keys``. Works only with ``SolutionTask``.
 
-- ``ParamSweepRunner`` (Pattern B): compositions fixed, parameters vary.
+- ``ParamBatchRunner`` (Pattern B): compositions fixed, parameters vary.
   Compositions are passed once to the runner; the input DataFrame holds
   only the varying parameters. Works with both ``SolutionTask`` and
   ``MultiSolutionTask``.
 
-- ``FullSweepRunner`` (Pattern C): everything varies. Input is a list of
+- ``FullBatchRunner`` (Pattern C): everything varies. Input is a list of
   per-job dicts. Works with both ``SolutionTask`` and ``MultiSolutionTask``.
 
-All three inherit from ``BaseSweepRunner``, which handles iteration, error
+All three inherit from ``BaseBatchRunner``, which handles iteration, error
 logging, and optional process-based parallel execution. Each worker process
 creates and caches its own backend via a user-supplied factory.
 
@@ -23,9 +23,9 @@ Choosing a runner:
 ============  =============  =============  ====================
 Pattern       Compositions   Parameters     Runner
 ============  =============  =============  ====================
-A             Vary           Fixed          SolutionSweepRunner
-B             Fixed          Vary           ParamSweepRunner
-C             Vary           Vary           FullSweepRunner
+A             Vary           Fixed          SolutionBatchRunner
+B             Fixed          Vary           ParamBatchRunner
+C             Vary           Vary           FullBatchRunner
 ============  =============  =============  ====================
 """
 from __future__ import annotations
@@ -78,11 +78,11 @@ def _run_one_job(
 
 
 # ---------------------------------------------------------------------------
-# BaseSweepRunner
+# BaseBatchRunner
 # ---------------------------------------------------------------------------
 
 @dataclass
-class BaseSweepRunner(ABC):
+class BaseBatchRunner(ABC):
     """Abstract base for batch runners.
 
     Provides the iteration loop, error logging, and result collection.
@@ -295,11 +295,11 @@ class BaseSweepRunner(ABC):
 
 
 # ---------------------------------------------------------------------------
-# Pattern A: SolutionSweepRunner — compositions vary, parameters fixed
+# Pattern A: SolutionBatchRunner — compositions vary, parameters fixed
 # ---------------------------------------------------------------------------
 
 @dataclass
-class SolutionSweepRunner(BaseSweepRunner):
+class SolutionBatchRunner(BaseBatchRunner):
     """Pattern A: vary compositions, fix parameters.
 
     Iterates over a DataFrame (or dict) of compositions, applying the same
@@ -308,7 +308,7 @@ class SolutionSweepRunner(BaseSweepRunner):
     table where each row is one sample.
 
     Restricted to ``SolutionTask``. For multi-solution patterns where all
-    compositions vary, use ``FullSweepRunner``.
+    compositions vary, use ``FullBatchRunner``.
 
     Parameters
     ----------
@@ -328,7 +328,7 @@ class SolutionSweepRunner(BaseSweepRunner):
 
     Examples
     --------
-    >>> runner = SolutionSweepRunner(task=density_task, id_col="sample_id")
+    >>> runner = SolutionBatchRunner(task=density_task, id_col="sample_id")
     >>> results = runner.run(df, phreeqc=backend)
     """
 
@@ -372,11 +372,11 @@ class SolutionSweepRunner(BaseSweepRunner):
 
 
 # ---------------------------------------------------------------------------
-# Pattern B: ParamSweepRunner — compositions fixed, parameters vary
+# Pattern B: ParamBatchRunner — compositions fixed, parameters vary
 # ---------------------------------------------------------------------------
 
 @dataclass
-class ParamSweepRunner(BaseSweepRunner):
+class ParamBatchRunner(BaseBatchRunner):
     """Pattern B: fix compositions, vary parameters.
 
     Compositions are passed once to the runner; the input DataFrame holds
@@ -417,7 +417,7 @@ class ParamSweepRunner(BaseSweepRunner):
     Brine mixing with fixed end-members, varying mixing fractions
     (DataFrame input):
 
-    >>> runner = ParamSweepRunner(
+    >>> runner = ParamBatchRunner(
     ...     task=mix_task,
     ...     compositions={"solution_1": formation_water, "solution_2": recharge_water},
     ...     param_cols=["f1", "f2"],
@@ -436,7 +436,7 @@ class ParamSweepRunner(BaseSweepRunner):
     ...     {"id": f"mix_{int(f*100):02d}", "f1": f, "f2": 1 - f}
     ...     for f in [0.1, 0.5, 0.9]
     ... ]
-    >>> runner = ParamSweepRunner(
+    >>> runner = ParamBatchRunner(
     ...     task=mix_task,
     ...     compositions={"solution_1": formation_water, "solution_2": recharge_water},
     ... )
@@ -444,7 +444,7 @@ class ParamSweepRunner(BaseSweepRunner):
 
     Acidification curve on a single brine, varying target pH:
 
-    >>> runner = ParamSweepRunner(
+    >>> runner = ParamBatchRunner(
     ...     task=acid_task,
     ...     composition=brine_sample,
     ...     param_cols=["ph_target"],
@@ -465,7 +465,7 @@ class ParamSweepRunner(BaseSweepRunner):
         # check that composition or compositions is provided, only one and not both
         if (self.composition is None) == (self.compositions is None):
             raise ValueError(
-                "ParamSweepRunner requires exactly one of "
+                "ParamBatchRunner requires exactly one of "
                 "'composition' (for SolutionTask) or "
                 "'compositions' (for MultiSolutionTask)."
             )
@@ -537,11 +537,11 @@ class ParamSweepRunner(BaseSweepRunner):
 
 
 # ---------------------------------------------------------------------------
-# Pattern C: FullSweepRunner — everything varies
+# Pattern C: FullBatchRunner — everything varies
 # ---------------------------------------------------------------------------
 
 @dataclass
-class FullSweepRunner(BaseSweepRunner):
+class FullBatchRunner(BaseBatchRunner):
     """Pattern C: vary compositions and parameters per job.
 
     Each job is a fully self-contained dict with its compositions and
@@ -576,7 +576,7 @@ class FullSweepRunner(BaseSweepRunner):
     ...         "f1": 0.4, "f2": 0.6,
     ...     },
     ... ]
-    >>> runner = FullSweepRunner(task=mix_task)
+    >>> runner = FullBatchRunner(task=mix_task)
     >>> results = runner.run(jobs, phreeqc=backend)
     """
 
@@ -585,7 +585,7 @@ class FullSweepRunner(BaseSweepRunner):
     def __post_init__(self):
         if not isinstance(self.task, (SolutionTask, MultiSolutionTask)):
             raise TypeError(
-                f"FullSweepRunner requires SolutionTask or MultiSolutionTask, "
+                f"FullBatchRunner requires SolutionTask or MultiSolutionTask, "
                 f"got {type(self.task).__name__}."
             )
         self._composition_key = (

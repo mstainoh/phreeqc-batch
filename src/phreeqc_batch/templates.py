@@ -63,16 +63,19 @@ class PhreeqcTemplate:
         """
         return _get_template_keys(self.template)
 
-    def fill(self, ignore_extra:bool=False, **kwargs) -> str:
+    def fill(self, ignore_extra:bool=True, **kwargs) -> str:
         """Fill the template with the provided values.
 
         Only the keys required by the template are used; extra kwargs
         are silently ignored, which allows passing a full composition
-        dict without filtering upstream.
+        dict without filtering upstream. 
+        
+        Consistency can be enforced by setting ``ignore_extra=False``
+        
 
         Parameters
         ----------
-        ignore_extra: bool. Default False
+        ignore_extra: bool. Default True
             If set to True, extra keys not required by the template are ignored.
             If set to False, raises ValueError if extra keys are present
         **kwargs : float or str
@@ -152,16 +155,16 @@ DEFAULT_COMPOSITION_NO_CONDITIONS_TEMPLATE  = PhreeqcTemplate(r"""
 # Run templates: get {composition_str} + task parameters
 # ---------------------------------------------------------------------------
 
-DEFAULT_SOLUTION_RUN_TEMPLATE = PhreeqcTemplate(r"""
-SOLUTION 1  Brine Sample
+DEFAULT_SOLUTION_RUN_TEMPLATE = PhreeqcTemplate(r"""\
+SOLUTION 1
 {composition_str}
 
-    USER_PUNCH
+USER_PUNCH
     -headings density
     10 PUNCH RHO
 
-    SELECTED_OUTPUT
-      -file solution.sel
-      -reset False
+SELECTED_OUTPUT
+    -reset       false
+    -user_punch  true
 END
 """)
