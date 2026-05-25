@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "phreeqc-batch"
-version = "0.1.0"
+version = "0.1.1"
 authors = [{ name = "M. Stainoh" }]
 description = "Structured PHREEQC workflows over python phreeqc bindings: template-based composition building, typed task execution, and batch processing."
 readme = "README.md"
