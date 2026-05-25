@@ -18,7 +18,7 @@ and ``BaseBatchRunner.run`` subclasses in place of the default backend.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Protocol, Union, runtime_checkable
 
 import phreeqpy.iphreeqc.phreeqc_dll as phreeqc_mod
 
@@ -142,7 +142,7 @@ class PhreeqpyBackend:
         return self._phreeqc.get_selected_output_array()
 
     @staticmethod
-    def create_from_database(db_path: Path) -> PhreeqpyBackend:
+    def create_from_database(db_path: Union[str,Path]) -> PhreeqpyBackend:
         """Create a ``PhreeqpyBackend`` with a loaded PHREEQC database.
 
         Convenience factory that instantiates a raw IPhreeqc object, loads
