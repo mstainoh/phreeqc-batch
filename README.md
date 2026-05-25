@@ -77,22 +77,25 @@ Requires Python ≥ 3.10 and phreeqpy.
 ## Quick start — Pattern A: vary compositions
 
 ```python
-from pathlib import Path
 import pandas as pd
 from phreeqc_batch import (
     PhreeqcTemplate,
     SolutionTask,
     SolutionSweepRunner,
     PhreeqpyBackend,
+    get_database_path,
 )
 
 # Define what your composition looks like in PHREEQC input.
 comp_template = PhreeqcTemplate("""\
     units   {units}
-    temp    {temp}
-    pH      {pH}
     Na      {Na}
+    K       {K}
+    Ca      {Ca}
+    Mg      {Mg}
     Cl      {Cl}
+    S(6)    {SO4} as SO4
+    Li      {Li}
 """)
 
 # Define what to do with it.
@@ -105,44 +108,51 @@ USER_PUNCH
     10 PUNCH RHO
 
 SELECTED_OUTPUT
-    -reset false
+    -reset                  false
+    -saturation_indices     Halite Gypsum Anhydrite
+    -user_punch             true
 END
 """)
 
 task = SolutionTask(
-    task_name="density",
+    task_name="brine_si",
     run_template=run_template,
     composition_template=comp_template,
 )
 
-backend = PhreeqpyBackend.create_from_database(
-    Path("databases/pitzer.dat")
-)
+backend = PhreeqpyBackend.create_from_database(get_database_path("pitzer"))
 
-# Run over a DataFrame of samples.
+# Lithium brine samples from Puna salars (Ericksen 1987, mg/L).
 df = pd.DataFrame([
-    {"sample_id": "S01", "units": "mmol/L", "temp": 25, "pH": 7.0, "Na": 100, "Cl": 100},
-    {"sample_id": "S02", "units": "mmol/L", "temp": 25, "pH": 7.2, "Na": 500, "Cl": 510},
+    {"salar": "Hombre Muerto", "units": "mg/L",
+     "Na": 121900, "K": 9340, "Ca": 1000, "Mg": 268,
+     "Cl": 194800, "SO4": 11100, "Li": 914},
+    {"salar": "Atacama", "units": "mg/L",
+     "Na": 103000, "K": 12900, "Ca": 520, "Mg": 6130,
+     "Cl": 183100, "SO4": 16140, "Li": 760},
+    {"salar": "Uyuni", "units": "mg/L",
+     "Na": 94900, "K": 13500, "Ca": 461, "Mg": 11800,
+     "Cl": 191800, "SO4": 13200, "Li": 700},
+    {"salar": "Rincon", "units": "mg/L",
+     "Na": 122200, "K": 6570, "Ca": 280, "Mg": 2120,
+     "Cl": 190500, "SO4": 15990, "Li": 350},
 ])
 
-runner = SolutionSweepRunner(task=task, id_col="sample_id")
+runner = SolutionSweepRunner(task=task, id_col="salar")
 results = runner.run(df, phreeqc=backend)
+
+for r in results:
+    print(f"{r.id:15s}  {r.data.iloc[0].to_dict()}")
 ```
 
-`SolutionSweepRunner` pulls only the columns the composition template needs,
-so extra DataFrame columns (notes, dates, lab IDs) are silently ignored.
+`SolutionSweepRunner` pulls only the columns the composition template
+needs, so extra DataFrame columns (notes, dates, lab IDs) are silently
+ignored.
 
-The result is a list of `PhreeqcResult` objects:
-
-```python
->>> results[0]
-PhreeqcResult(id='S01', task_name='density', data=<DataFrame>, metadata={})
->>> results[0].data
-    pH  density
-0  7.0   1.0023
-```
-
-For a runnable single-sample version, see [`examples/01_density_single.py`](examples/01_density_single.py).
+For a runnable single-sample version, see
+[`examples/01_density_single.py`](examples/01_density_single.py).
+For the full Puna dataset and richer post-processing, see
+[`examples/04_saturation_indices_puna.py`](examples/04_saturation_indices_puna.py).
 For flattening results to a summary DataFrame, see `results_to_scalar_df`
 and `results_to_curve_dict`.
 
@@ -246,9 +256,9 @@ processes).
 
 ```python
 from functools import partial
-from phreeqc_batch import PhreeqpyBackend
+from phreeqc_batch import PhreeqpyBackend, get_database_path
 
-factory = partial(PhreeqpyBackend.create_from_database, Path("databases/pitzer.dat"))
+factory = partial(PhreeqpyBackend.create_from_database, get_database_path("pitzer"))
 
 results = runner.run_parallel(
     df,
